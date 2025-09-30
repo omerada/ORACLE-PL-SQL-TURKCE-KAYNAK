@@ -17,6 +17,17 @@ SQL (Structured Query Language), veritabanlarında veri sorgulamak, eklemek, gü
 
 **Ne İşe Yarar:** Veritabanı nesnelerini (tablo, index, constraint vb.) oluşturmak, değiştirmek ve silmek için kullanılır.
 
+**Temel DDL Komutları:**
+
+- **CREATE**: Yeni veritabanı nesneleri oluşturur
+- **ALTER**: Mevcut nesnelerin yapısını değiştirir
+- **DROP**: Nesneleri tamamen siler
+- **TRUNCATE**: Tablodaki tüm verileri hızlıca temizler
+- **RENAME**: Tablo, sütun, index gibi nesnelerin ismini değiştirir
+- **COMMENT ON**: Tablolara ve sütunlara açıklama metni ekler
+- **CREATE OR REPLACE**: Nesne varsa günceller, yoksa oluşturur
+- **DESCRIBE/DESC**: Tablo yapısını ve sütun bilgilerini gösterir
+
 Veritabanı yapısını oluşturan komutlar:
 
 ```sql
@@ -50,11 +61,57 @@ DROP TABLE employees;
 -- Index oluşturma
 CREATE INDEX idx_emp_dept ON employees(department_id);
 CREATE INDEX idx_emp_name ON employees(first_name, last_name);
+
+-- RENAME: Nesne ismini değiştirme
+-- Tablo ismini değiştir
+RENAME employees TO staff;
+RENAME staff TO employees;  -- Geri değiştir
+
+-- Sütun ismini değiştirme
+ALTER TABLE employees RENAME COLUMN phone TO phone_number;
+
+-- Index ismini değiştirme
+ALTER INDEX idx_emp_dept RENAME TO idx_employees_department;
+
+-- COMMENT ON: Nesnelere açıklama ekleme
+-- Tablo açıklaması
+COMMENT ON TABLE employees IS 'Çalışan bilgilerini saklayan ana tablo';
+
+-- Sütun açıklamaları
+COMMENT ON COLUMN employees.employee_id IS 'Benzersiz çalışan kimlik numarası';
+COMMENT ON COLUMN employees.salary IS 'Aylık maaş miktarı (TL cinsinden)';
+COMMENT ON COLUMN employees.hire_date IS 'İşe başlama tarihi';
+
+-- CREATE OR REPLACE: Nesne varsa güncelle, yoksa oluştur
+-- View için CREATE OR REPLACE
+CREATE OR REPLACE VIEW emp_summary AS
+SELECT department_id, COUNT(*) as emp_count, AVG(salary) as avg_salary
+FROM employees
+GROUP BY department_id;
+
+-- DESCRIBE/DESC: Tablo yapısını görüntüleme
+-- Not: Bu komut SQL*Plus/SQL Developer'a özgüdür
+-- DESC employees;  -- Tablo yapısını göster
+-- DESCRIBE employees;  -- Uzun hali
+
+-- SQL ile tablo yapısını görme (standard yol)
+SELECT column_name, data_type, nullable, data_default
+FROM user_tab_columns
+WHERE table_name = 'EMPLOYEES'
+ORDER BY column_id;
 ```
 
 ### DML (Data Manipulation Language) - Veri İşleme Dili
 
 **Ne İşe Yarar:** Tablolardaki verileri eklemek, güncellemek, silmek için kullanılır.
+
+**Temel DML Komutları:**
+
+- **INSERT**: Tabloya yeni kayıt ekler
+- **UPDATE**: Mevcut kayıtları günceller
+- **DELETE**: Kayıtları siler (rollback edilebilir)
+- **TRUNCATE**: Tüm kayıtları hızlıca siler (rollback edilemez)
+- **MERGE**: Koşullu INSERT/UPDATE işlemi yapar (UPSERT)
 
 Veri işleme komutları:
 
@@ -99,6 +156,56 @@ TRUNCATE TABLE employees;
 -- TRUNCATE vs DELETE karşılaştırması:
 -- DELETE: WHERE kullanabilir, yavaş, rollback edilebilir, trigger çalışır
 -- TRUNCATE: WHERE yok, hızlı, rollback edilemez, trigger çalışmaz
+
+-- MERGE: UPSERT işlemi (UPDATE + INSERT)
+-- Eğer kayıt varsa güncelle, yoksa ekle
+-- Çok güçlü ve yaygın kullanılan komut
+MERGE INTO employees target
+USING (SELECT 100 as emp_id, 'John' as fname, 'Doe' as lname, 5000 as sal FROM dual) source
+ON (target.employee_id = source.emp_id)
+WHEN MATCHED THEN
+    UPDATE SET
+        first_name = source.fname,
+        last_name = source.lname,
+        salary = source.sal,
+        last_updated = SYSDATE
+WHEN NOT MATCHED THEN
+    INSERT (employee_id, first_name, last_name, salary, hire_date)
+    VALUES (source.emp_id, source.fname, source.lname, source.sal, SYSDATE);
+
+-- Daha karmaşık MERGE örneği
+MERGE INTO employee_summary target
+USING (
+    SELECT
+        department_id,
+        COUNT(*) as emp_count,
+        AVG(salary) as avg_salary,
+        SUM(salary) as total_salary
+    FROM employees
+    GROUP BY department_id
+) source
+ON (target.dept_id = source.department_id)
+WHEN MATCHED THEN
+    UPDATE SET
+        employee_count = source.emp_count,
+        average_salary = source.avg_salary,
+        total_budget = source.total_salary,
+        updated_date = SYSDATE
+    WHERE target.employee_count != source.emp_count  -- Koşullu güncelleme
+WHEN NOT MATCHED THEN
+    INSERT (dept_id, employee_count, average_salary, total_budget, created_date)
+    VALUES (source.department_id, source.emp_count, source.avg_salary,
+            source.total_salary, SYSDATE)
+WHEN NOT MATCHED BY SOURCE THEN
+    DELETE;  -- Source'da olmayan kayıtları sil (12c+)
+
+-- MERGE ile toplu güncelleme
+MERGE INTO employees target
+USING temp_salary_updates source
+ON (target.employee_id = source.employee_id)
+WHEN MATCHED THEN
+    UPDATE SET salary = source.new_salary
+    DELETE WHERE source.new_salary IS NULL;  -- NULL maaşlıları sil
 ```
 
 ### DCL (Data Control Language) - Veri Kontrol Dili
@@ -1541,6 +1648,138 @@ SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);
 ALTER SESSION SET SQL_TRACE = TRUE;
 -- Sorguları çalıştır
 ALTER SESSION SET SQL_TRACE = FALSE;
+```
+
+## 13. HİYERARŞİK SORGULAR (Hierarchical Queries)
+
+**Ne İşe Yarar:** Oracle'da ağaç yapısındaki verileri (organizasyon şeması, menü yapısı vb.) sorgulamak için kullanılır.
+
+**Önemli Komutlar:**
+
+- **CONNECT BY**: Hiyerarşik ilişkiyi tanımlar
+- **START WITH**: Hiyerarşinin başlangıç noktasını belirtir
+- **PRIOR**: Üst seviyedeki satıra referans verir
+- **LEVEL**: Hiyerarşideki seviyeyi gösterir
+- **SYS_CONNECT_BY_PATH**: Kökten mevcut düğüme kadar olan yolu gösterir
+- **CONNECT_BY_ROOT**: Hiyerarşinin kök değerini döndürür
+
+```sql
+-- Organizasyon şeması örneği (manager-employee ilişkisi)
+-- Belirli bir yöneticiden başlayarak tüm alt çalışanları bul
+SELECT
+    LEVEL,
+    LPAD(' ', (LEVEL-1)*2) || first_name || ' ' || last_name as employee_hierarchy,
+    employee_id,
+    manager_id,
+    salary
+FROM employees
+START WITH manager_id IS NULL  -- CEO'dan başla (manager'ı olmayan)
+CONNECT BY PRIOR employee_id = manager_id  -- Alt çalışanları bul
+ORDER SIBLINGS BY last_name;  -- Aynı seviyedeki kardeşleri sırala
+
+-- Belirli bir çalışandan yukarı doğru hiyerarşi
+SELECT
+    LEVEL,
+    LPAD(' ', (LEVEL-1)*2) || first_name || ' ' || last_name as manager_hierarchy,
+    employee_id,
+    manager_id
+FROM employees
+START WITH employee_id = 150  -- Belirli çalışandan başla
+CONNECT BY employee_id = PRIOR manager_id;  -- Yukarı doğru git
+
+-- Hiyerarşik fonksiyonlar
+SELECT
+    employee_id,
+    first_name || ' ' || last_name as employee_name,
+    LEVEL as hierarchy_level,
+    SYS_CONNECT_BY_PATH(first_name || ' ' || last_name, ' -> ') as path_from_root,
+    CONNECT_BY_ROOT (first_name || ' ' || last_name) as top_manager,
+    CONNECT_BY_ISLEAF as is_leaf_node,  -- 1 ise alt çalışanı yok
+    CONNECT_BY_ISCYCLE as has_cycle     -- 1 ise döngü var
+FROM employees
+START WITH manager_id IS NULL
+CONNECT BY PRIOR employee_id = manager_id
+AND CONNECT_BY_ISCYCLE = 0;  -- Döngüleri önle
+
+-- Belirli seviyedeki çalışanları bul
+SELECT employee_id, first_name, last_name, LEVEL
+FROM employees
+START WITH manager_id IS NULL
+CONNECT BY PRIOR employee_id = manager_id
+WHERE LEVEL = 3;  -- Sadece 3. seviyedeki çalışanlar
+
+-- Alt çalışan sayısını hesaplama
+SELECT
+    m.employee_id,
+    m.first_name || ' ' || m.last_name as manager_name,
+    COUNT(e.employee_id) as subordinate_count
+FROM employees m
+LEFT JOIN employees e ON m.employee_id = e.manager_id
+GROUP BY m.employee_id, m.first_name, m.last_name
+ORDER BY subordinate_count DESC;
+
+-- Menü yapısı örneği
+SELECT
+    LEVEL,
+    LPAD('-', (LEVEL-1)*2) || menu_name as menu_structure,
+    menu_id,
+    parent_menu_id,
+    menu_url
+FROM menu_items
+START WITH parent_menu_id IS NULL  -- Ana menüden başla
+CONNECT BY PRIOR menu_id = parent_menu_id
+ORDER SIBLINGS BY display_order;
+```
+
+## 14. ROWNUM ve ROWID
+
+**Ne İşe Yarar:** Oracle'ın özel sözde sütunları (pseudocolumns) - satır numarası ve fiziksel adresleme için kullanılır.
+
+```sql
+-- ROWNUM: Satır numarası (sorguda dönen sıra)
+-- İlk 10 kayıt
+SELECT employee_id, first_name, last_name
+FROM employees
+WHERE ROWNUM <= 10;
+
+-- ROWNUM ile sayfalama (dikkatli kullanılmalı)
+-- 11-20 arası kayıtlar (yanlış yöntem)
+-- SELECT * FROM employees WHERE ROWNUM BETWEEN 11 AND 20; -- Bu çalışmaz!
+
+-- Doğru sayfalama yöntemi
+SELECT * FROM (
+    SELECT employee_id, first_name, last_name, ROWNUM as rn
+    FROM employees
+    WHERE ROWNUM <= 20  -- İlk 20'yi al
+)
+WHERE rn > 10;  -- 11-20 arası
+
+-- ROW_NUMBER() ile modern sayfalama (önerilen)
+SELECT employee_id, first_name, last_name
+FROM (
+    SELECT employee_id, first_name, last_name,
+           ROW_NUMBER() OVER (ORDER BY employee_id) as rn
+    FROM employees
+)
+WHERE rn BETWEEN 11 AND 20;
+
+-- ROWID: Fiziksel adres (benzersiz)
+SELECT ROWID, employee_id, first_name
+FROM employees
+WHERE department_id = 10;
+
+-- ROWID ile hızlı güncelleme
+UPDATE employees
+SET salary = salary * 1.1
+WHERE ROWID = 'AAAHhpAAEAAAAFKAAA';  -- Belirli fiziksel adres
+
+-- Duplicate kayıtları ROWID ile silme
+DELETE FROM employees
+WHERE ROWID NOT IN (
+    SELECT MIN(ROWID)
+    FROM employees
+    GROUP BY employee_id  -- Aynı employee_id'ye sahip kayıtların ilkini tut
+);
 ```
 
 **Sonraki Bölümde:** Oracle Database temel kavramlarını öğreneceğiz.
