@@ -87,6 +87,121 @@ WHERE employee_id = 1;-- Veri silme
 DELETE FROM employees WHERE employee_id = 1;
 -- Belirli tarihten önce işe başlayan çalışanları sil
 DELETE FROM employees WHERE hire_date < DATE '2020-01-01';
+
+-- TRUNCATE: Tablonun tüm içeriğini hızlıca siler
+-- DELETE'den farklı olarak:
+-- 1. WHERE koşulu kullanamaz (tüm tablo silinir)
+-- 2. Rollback yapılamaz (DDL komutu)
+-- 3. Çok daha hızlıdır (log tutmaz)
+-- 4. AUTO_INCREMENT/SEQUENCE sayaçlarını sıfırlar
+TRUNCATE TABLE employees;
+
+-- TRUNCATE vs DELETE karşılaştırması:
+-- DELETE: WHERE kullanabilir, yavaş, rollback edilebilir, trigger çalışır
+-- TRUNCATE: WHERE yok, hızlı, rollback edilemez, trigger çalışmaz
+```
+
+### DCL (Data Control Language) - Veri Kontrol Dili
+
+**Ne İşe Yarar:** Veritabanı erişim yetkilerini yönetmek için kullanılır.
+
+```sql
+-- GRANT: Yetki verme
+-- Kullanıcıya tablo üzerinde okuma yetkisi ver
+GRANT SELECT ON employees TO hr_user;
+
+-- Birden fazla yetki verme
+GRANT SELECT, INSERT, UPDATE ON employees TO data_entry_user;
+
+-- Tüm yetkiler verme
+GRANT ALL PRIVILEGES ON employees TO admin_user;
+
+-- Role oluşturma ve yetki verme
+CREATE ROLE employee_role;
+GRANT SELECT, INSERT ON employees TO employee_role;
+GRANT employee_role TO hr_user;
+
+-- Belirli sütunlara yetki verme
+GRANT UPDATE (salary, department_id) ON employees TO hr_manager;
+
+-- REVOKE: Yetki geri alma
+-- Kullanıcıdan okuma yetkisini geri al
+REVOKE SELECT ON employees FROM hr_user;
+
+-- Birden fazla yetkiyi geri alma
+REVOKE INSERT, UPDATE ON employees FROM data_entry_user;
+
+-- Role'den yetki geri alma
+REVOKE employee_role FROM hr_user;
+
+-- WITH GRANT OPTION: Başkasına yetki verme hakkı
+GRANT SELECT ON employees TO manager_user WITH GRANT OPTION;
+-- manager_user artık başkalarına da SELECT yetkisi verebilir
+
+-- CASCADE ile yetki geri alma
+REVOKE SELECT ON employees FROM manager_user CASCADE;
+-- manager_user'in başkalarına verdiği yetkiler de geri alınır
+
+-- System privileges (sistem yetkileri)
+GRANT CREATE TABLE TO developer_user;
+GRANT CREATE VIEW TO analyst_user;
+GRANT CREATE PROCEDURE TO app_developer;
+
+-- Public'e yetki verme
+GRANT SELECT ON departments TO PUBLIC;
+-- Tüm kullanıcılar departments tablosunu okuyabilir
+
+-- Yetki sorgulama
+-- Kullanıcının yetkilerini görüntüleme
+SELECT * FROM user_tab_privs;      -- Tablo yetkileri
+SELECT * FROM user_sys_privs;      -- Sistem yetkileri
+SELECT * FROM user_role_privs;     -- Role yetkileri
+
+-- Başkalarına verilen yetkileri görme
+SELECT * FROM user_tab_privs_made; -- Bu kullanıcının verdiği yetkiler
+```
+
+### TCL (Transaction Control Language) - Transaction Kontrol Dili
+
+**Ne İşe Yarar:** Veritabanı transaction'larını yönetmek için kullanılır.
+
+```sql
+-- COMMIT: Değişiklikleri kalıcı olarak kaydet
+INSERT INTO employees (employee_id, first_name) VALUES (1001, 'John');
+UPDATE employees SET salary = 5000 WHERE employee_id = 1001;
+COMMIT; -- İki işlem de kaydedildi
+
+-- ROLLBACK: Değişiklikleri geri al
+INSERT INTO employees (employee_id, first_name) VALUES (1002, 'Jane');
+DELETE FROM employees WHERE employee_id = 100;
+ROLLBACK; -- İki işlem de geri alındı
+
+-- SAVEPOINT: Ara kaydetme noktası oluştur
+INSERT INTO employees (employee_id, first_name) VALUES (1003, 'Bob');
+SAVEPOINT sp1;
+UPDATE employees SET salary = 6000 WHERE employee_id = 1003;
+SAVEPOINT sp2;
+DELETE FROM employees WHERE employee_id = 1003;
+
+-- ROLLBACK TO: Belirli savepoint'e geri dön
+ROLLBACK TO sp2; -- Sadece DELETE geri alınır, INSERT ve UPDATE kalur
+ROLLBACK TO sp1; -- UPDATE ve DELETE geri alınır, sadece INSERT kalur
+
+-- Automatic COMMIT scenarios
+-- DDL komutları otomatik COMMIT yapar
+INSERT INTO employees (employee_id, first_name) VALUES (1004, 'Alice');
+CREATE TABLE test_table (id NUMBER); -- Otomatik COMMIT (üsteki INSERT kaydedildi)
+
+-- Normal session sonu da otomatik COMMIT yapar
+-- EXIT veya disconnect otomatik COMMIT tetikler
+
+-- SET TRANSACTION: Transaction özelliklerini ayarla
+SET TRANSACTION ISOLATION LEVEL READ_COMMITTED;
+SET TRANSACTION READ_ONLY;  -- Sadece okuma için
+
+-- Oracle'da implicit transaction başlatma
+-- İlk DML komutu otomatik olarak transaction başlatır
+-- Explicit BEGIN TRANSACTION yoktur (SQL Server'dan farklı)
 ```
 
 ### DQL (Data Query Language) - Veri Sorgulama Dili
@@ -538,30 +653,88 @@ ORDER BY department_id;
 
 ## 6. Aggregate Fonksiyonları
 
+**Ne İşe Yarar:** Aggregate fonksiyonlar birden fazla satırı bir araya getirip tek bir sonuç üretir.
+
 ```sql
--- Temel aggregate
+-- Temel aggregate fonksiyonlar
 SELECT
+    -- COUNT(*): Tüm satırları sayar (NULL'lar dahil)
     COUNT(*) as total_employees,
+    -- COUNT(column): Belirli sütundaki NULL olmayan değerleri sayar
     COUNT(commission_pct) as employees_with_commission,
+    -- SUM: Sayısal değerlerin toplamını hesaplar
     SUM(salary) as total_salary,
+    -- AVG: Aritmetik ortalama hesaplar (NULL'lar hariç)
     AVG(salary) as average_salary,
+    -- MAX: En büyük değeri bulur
     MAX(salary) as highest_salary,
+    -- MIN: En küçük değeri bulur
     MIN(salary) as lowest_salary,
-    STDDEV(salary) as salary_stddev
+    -- STDDEV: Standart sapma hesaplar
+    STDDEV(salary) as salary_stddev,
+    -- VARIANCE: Varyans hesaplar
+    VARIANCE(salary) as salary_variance,
+    -- Tarih fonksiyonları ile
+    MIN(hire_date) as first_hire_date,
+    MAX(hire_date) as last_hire_date
 FROM employees;
 
--- Analytic functions
+-- Gruplanmış aggregate örnekleri
 SELECT
+    department_id,
+    COUNT(*) as emp_count,
+    SUM(salary) as dept_total_salary,
+    AVG(salary) as dept_avg_salary,
+    MIN(salary) as min_salary,
+    MAX(salary) as max_salary,
+    -- Koşullu aggregate
+    COUNT(CASE WHEN salary > 10000 THEN 1 END) as high_earners,
+    SUM(CASE WHEN commission_pct IS NOT NULL THEN salary ELSE 0 END) as commissioned_salary
+FROM employees
+GROUP BY department_id
+HAVING COUNT(*) > 1  -- En az 2 çalışanı olan departmanlar
+ORDER BY dept_avg_salary DESC;
+```
+
+### Analytic Functions (Pencere Fonksiyonları)
+
+**Ne İşe Yarar:** Her satır için hesaplama yapar ama GROUP BY gibi satırları birleştirmez.
+
+```sql
+-- Ranking fonksiyonları
+SELECT
+    employee_id,
     first_name,
     last_name,
     salary,
+    department_id,
+
+    -- RANK: Eşit değerler için aynı sıra, sonraki sıra atlanır (1,1,3,4)
     RANK() OVER (ORDER BY salary DESC) as salary_rank,
+
+    -- DENSE_RANK: Eşit değerler için aynı sıra, sonraki sıra atlanmaz (1,1,2,3)
     DENSE_RANK() OVER (ORDER BY salary DESC) as salary_dense_rank,
+
+    -- ROW_NUMBER: Her satıra benzersiz numara verir (1,2,3,4)
     ROW_NUMBER() OVER (ORDER BY salary DESC) as row_num,
-    NTILE(4) OVER (ORDER BY salary) as salary_quartile,
-    LAG(salary) OVER (ORDER BY hire_date) as prev_emp_salary,
-    LEAD(salary) OVER (ORDER BY hire_date) as next_emp_salary
-FROM employees;
+
+    -- NTILE: Verileri belirtilen sayıda eşit gruba böler
+    NTILE(4) OVER (ORDER BY salary) as salary_quartile,  -- 4 çeyrekliğe böl
+
+    -- LAG: Önceki satırdaki değeri getirir
+    LAG(salary, 1, 0) OVER (ORDER BY hire_date) as prev_emp_salary,
+
+    -- LEAD: Sonraki satırdaki değeri getirir
+    LEAD(salary, 1, 0) OVER (ORDER BY hire_date) as next_emp_salary,
+
+    -- FIRST_VALUE: Partition'daki ilk değeri getirir
+    FIRST_VALUE(salary) OVER (ORDER BY hire_date) as first_hired_salary,
+
+    -- LAST_VALUE: Partition'daki son değeri getirir
+    LAST_VALUE(salary) OVER (ORDER BY hire_date
+        ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) as last_hired_salary
+FROM employees
+ORDER BY salary DESC;
 ```
 
 ## 7. Window Functions
@@ -592,134 +765,548 @@ ORDER BY hire_date;
 
 ## 8. CTE (Common Table Expressions)
 
+**Ne İşe Yarar:** CTE, karmaşık sorguları basitleştirmek için geçici "view" benzeri yapılar oluşturur.
+
 ```sql
 -- Recursive CTE - Organizational hierarchy
+-- RECURSIVE: Kendini referans eden CTE (hiyerarşik veriler için)
 WITH emp_hierarchy (employee_id, first_name, last_name, manager_id, level_num, path) AS (
-    -- Anchor: Top level managers
-    SELECT employee_id, first_name, last_name, manager_id, 1, first_name
+    -- Anchor member: Başlangıç noktası (en üst seviye yöneticiler)
+    SELECT
+        employee_id,
+        first_name,
+        last_name,
+        manager_id,
+        1 as level_num,                    -- Seviye 1 (en üst)
+        first_name as path                 -- Hiyerarşi yolu
     FROM employees
-    WHERE manager_id IS NULL
+    WHERE manager_id IS NULL              -- Yöneticisi olmayan (CEO vb.)
 
     UNION ALL
 
-    -- Recursive: Direct reports
-    SELECT e.employee_id, e.first_name, e.last_name, e.manager_id,
-           eh.level_num + 1, eh.path || ' -> ' || e.first_name
+    -- Recursive member: Tekrarlanan kısım (alt seviyeleri bul)
+    SELECT
+        e.employee_id,
+        e.first_name,
+        e.last_name,
+        e.manager_id,
+        eh.level_num + 1,                  -- Seviyeyi arttır
+        eh.path || ' -> ' || e.first_name  -- Yolu genişlet
     FROM employees e
-    JOIN emp_hierarchy eh ON e.manager_id = eh.employee_id
+    JOIN emp_hierarchy eh ON e.manager_id = eh.employee_id  -- Üst seviyeyle bağla
 )
-SELECT * FROM emp_hierarchy ORDER BY level_num, path;
+SELECT
+    level_num,
+    LPAD(' ', (level_num-1)*2) || first_name as indented_name,  -- Girintili gösterim
+    path,
+    employee_id,
+    manager_id
+FROM emp_hierarchy
+ORDER BY level_num, path;
 
--- Non-recursive CTE
+-- Non-recursive CTE (normal kullanım)
+-- Karmaşık sorguyu parçalara ayırma
 WITH high_earners AS (
-    SELECT * FROM employees WHERE salary > 8000
+    -- 1. Adım: Yüksek maaşlı çalışanları bul
+    SELECT employee_id, first_name, last_name, salary, department_id
+    FROM employees
+    WHERE salary > 8000
 ),
 dept_stats AS (
-    SELECT department_id, AVG(salary) as avg_sal
+    -- 2. Adım: Bu çalışanların departman istatistikleri
+    SELECT
+        department_id,
+        AVG(salary) as avg_sal,
+        COUNT(*) as emp_count,
+        MAX(salary) as max_sal
     FROM high_earners
     GROUP BY department_id
+),
+top_departments AS (
+    -- 3. Adım: En iyi departmanları seç
+    SELECT department_id
+    FROM dept_stats
+    WHERE avg_sal > 10000 AND emp_count >= 2
 )
-SELECT he.first_name, he.salary, ds.avg_sal
+-- Final sorgu: Tüm CTE'leri birleştir
+SELECT
+    he.first_name,
+    he.last_name,
+    he.salary,
+    ds.avg_sal as dept_avg,
+    ds.emp_count as dept_size
 FROM high_earners he
-JOIN dept_stats ds ON he.department_id = ds.department_id;
+JOIN dept_stats ds ON he.department_id = ds.department_id
+JOIN top_departments td ON he.department_id = td.department_id
+ORDER BY he.salary DESC;
+
+-- Multiple CTE usage
+WITH
+salary_grades AS (
+    SELECT
+        employee_id,
+        CASE
+            WHEN salary > 15000 THEN 'A'
+            WHEN salary > 10000 THEN 'B'
+            WHEN salary > 5000 THEN 'C'
+            ELSE 'D'
+        END as grade
+    FROM employees
+),
+grade_counts AS (
+    SELECT grade, COUNT(*) as count
+    FROM salary_grades
+    GROUP BY grade
+)
+SELECT * FROM grade_counts ORDER BY grade;
 ```
 
-## 9. Set Operations
+## 9. Set Operations (Küme İşlemleri)
+
+**Ne İşe Yarar:** İki veya daha fazla SELECT sorgusunun sonuçlarını birleştirir, ortak kısımları bulur veya farklarını alır.
 
 ```sql
--- UNION - Combine results, remove duplicates
-SELECT first_name, last_name FROM employees WHERE department_id = 10
+-- UNION: Sonuçları birleştirir, tekrarları kaldırır
+-- İki sorgu aynı sayıda sütun dönmeli ve tiplerinin uyuşması gerekir
+SELECT first_name, last_name, 'Employee' as type
+FROM employees
+WHERE department_id = 10
 UNION
-SELECT first_name, last_name FROM employees WHERE salary > 10000;
+SELECT first_name, last_name, 'High Earner' as type
+FROM employees
+WHERE salary > 10000;
 
--- UNION ALL - Combine results, keep duplicates
-SELECT department_id FROM employees WHERE salary > 5000
+-- UNION ALL: Sonuçları birleştirir, tekrarları saklar (daha hızlı)
+-- Tekrar kontrolü yapmazmır, performans için tercih edilir
+SELECT department_id, 'High Salary' as category
+FROM employees
+WHERE salary > 5000
 UNION ALL
-SELECT department_id FROM employees WHERE hire_date > DATE '2020-01-01';
+SELECT department_id, 'Recent Hire' as category
+FROM employees
+WHERE hire_date > DATE '2020-01-01';
 
--- INTERSECT - Common records
-SELECT employee_id FROM employees WHERE department_id = 10
+-- INTERSECT: Her iki sorguda da bulunan ortak kayıtlar
+-- Hem 10 numaralı departmanda HEM DE maaşı 5000'den fazla olan çalışanlar
+SELECT employee_id, first_name, last_name
+FROM employees
+WHERE department_id = 10
 INTERSECT
-SELECT employee_id FROM employees WHERE salary > 5000;
+SELECT employee_id, first_name, last_name
+FROM employees
+WHERE salary > 5000;
 
--- MINUS - Records in first query but not in second
-SELECT employee_id FROM employees
+-- MINUS (Oracle) / EXCEPT (SQL Standard): İlk sorguda var, ikincide yok
+-- Tüm çalışanlar MINUS yüksek maaşlılar = düşük maaşlı çalışanlar
+SELECT employee_id, first_name, last_name, salary
+FROM employees
 MINUS
-SELECT employee_id FROM employees WHERE salary > 10000;
+SELECT employee_id, first_name, last_name, salary
+FROM employees
+WHERE salary > 10000;
+
+-- Practical örnekler
+
+-- Örnek 1: Farklı şehirlerdeki departmanları birleştir
+SELECT d.department_name, l.city
+FROM departments d
+JOIN locations l ON d.location_id = l.location_id
+WHERE l.city = 'Seattle'
+UNION
+SELECT d.department_name, l.city
+FROM departments d
+JOIN locations l ON d.location_id = l.location_id
+WHERE l.city = 'Toronto';
+
+-- Örnek 2: Aktif ve pasif çalışanları raporla
+SELECT employee_id, first_name, last_name, 'Active' as status
+FROM employees
+WHERE department_id IS NOT NULL
+UNION ALL
+SELECT employee_id, first_name, last_name, 'No Department' as status
+FROM employees
+WHERE department_id IS NULL;
+
+-- Örnek 3: Yüksek performanslı çalışanlar (maaş VEYA komisyon bazında)
+SELECT employee_id, first_name, salary as amount, 'High Salary' as reason
+FROM employees
+WHERE salary > 12000
+UNION
+SELECT employee_id, first_name, salary * commission_pct as amount, 'High Commission' as reason
+FROM employees
+WHERE commission_pct > 0.3;
+
+-- Set operations ile veri kalitesi kontrolü
+-- Hem employees hem de temp_employees'da bulunan duplikasyonları bul
+SELECT email
+FROM employees
+INTERSECT
+SELECT email
+FROM temp_employees;
 ```
 
-## 10. Transaction Control
+## 10. Transaction Control (Transaction Yönetimi)
+
+**Ne İşe Yarar:** Veritabanı değişikliklerini kontrollü bir şekilde yönetmek için kullanılır.
 
 ```sql
 -- Transaction başlatma ve yönetimi
+-- Not: Oracle'da ilk DML komutu otomatik transaction başlatır
 BEGIN
-    INSERT INTO employees (employee_id, first_name, last_name, email)
-    VALUES (1001, 'Test', 'User', 'test@company.com');
+    -- INSERT: Yeni kayıt ekleme
+    INSERT INTO employees (employee_id, first_name, last_name, email, hire_date)
+    VALUES (1001, 'Test', 'User', 'test@company.com', SYSDATE);
 
-    UPDATE employees SET salary = salary * 1.1 WHERE department_id = 10;
+    -- İlk işlemden sonra kaç satır etkilendi kontrol et
+    DBMS_OUTPUT.PUT_LINE('Inserted rows: ' || SQL%ROWCOUNT);
 
+    -- UPDATE: Mevcut kayıtları güncelleme
+    UPDATE employees
+    SET salary = salary * 1.1
+    WHERE department_id = 10;
+
+    DBMS_OUTPUT.PUT_LINE('Updated rows: ' || SQL%ROWCOUNT);
+
+    -- SAVEPOINT: Geçici kaydetme noktası oluştur
+    -- Bu noktaya geri dönülebilir
     SAVEPOINT before_delete;
 
-    DELETE FROM employees WHERE employee_id = 999;
+    -- DELETE: Kayıt silme
+    DELETE FROM employees
+    WHERE employee_id = 999;
 
-    -- Hata durumunda sadece delete'i geri al
-    ROLLBACK TO before_delete;
+    DBMS_OUTPUT.PUT_LINE('Deleted rows: ' || SQL%ROWCOUNT);
+
+    -- Koşullu geri alma
+    IF SQL%ROWCOUNT = 0 THEN
+        -- Eğer silinecek kayıt bulunamadıysa sadece delete'i geri al
+        ROLLBACK TO before_delete;
+        DBMS_OUTPUT.PUT_LINE('Delete rolled back - no matching record');
+    END IF;
 
     -- Tüm değişiklikleri kaydet
     COMMIT;
+    DBMS_OUTPUT.PUT_LINE('Transaction committed successfully');
+
+EXCEPTION
+    WHEN OTHERS THEN
+        -- Hata durumunda tüm değişiklikleri geri al
+        ROLLBACK;
+        DBMS_OUTPUT.PUT_LINE('Error occurred, transaction rolled back: ' || SQLERRM);
 END;
 /
+
+-- Complex transaction örneği
+-- Müşteri siparişi ve stok güncellemesi
+DECLARE
+    v_order_id NUMBER := 1001;
+    v_product_id NUMBER := 505;
+    v_quantity NUMBER := 5;
+    v_current_stock NUMBER;
+    insufficient_stock EXCEPTION;
+BEGIN
+    -- 1. Mevcut stok kontrolü
+    SELECT stock_quantity INTO v_current_stock
+    FROM products
+    WHERE product_id = v_product_id;
+
+    -- 2. Stok yeterli mi kontrol et
+    IF v_current_stock < v_quantity THEN
+        RAISE insufficient_stock;
+    END IF;
+
+    -- 3. Sipariş oluştur
+    INSERT INTO orders (order_id, order_date, status)
+    VALUES (v_order_id, SYSDATE, 'PENDING');
+
+    -- 4. Sipariş detayı ekle
+    INSERT INTO order_items (order_id, product_id, quantity, unit_price)
+    SELECT v_order_id, v_product_id, v_quantity, unit_price
+    FROM products
+    WHERE product_id = v_product_id;
+
+    -- 5. Stok güncelle
+    UPDATE products
+    SET stock_quantity = stock_quantity - v_quantity,
+        last_updated = SYSDATE
+    WHERE product_id = v_product_id;
+
+    -- 6. Tüm işlemler başarılıysa kaydet
+    COMMIT;
+    DBMS_OUTPUT.PUT_LINE('Order ' || v_order_id || ' created successfully');
+
+EXCEPTION
+    WHEN insufficient_stock THEN
+        ROLLBACK;
+        DBMS_OUTPUT.PUT_LINE('Error: Insufficient stock. Available: ' || v_current_stock);
+    WHEN NO_DATA_FOUND THEN
+        ROLLBACK;
+        DBMS_OUTPUT.PUT_LINE('Error: Product not found');
+    WHEN OTHERS THEN
+        ROLLBACK;
+        DBMS_OUTPUT.PUT_LINE('Error: ' || SQLERRM);
+END;
+/
+
+-- Transaction isolation levels (session bazında)
+-- READ COMMITTED (Oracle default)
+ALTER SESSION SET ISOLATION_LEVEL = READ_COMMITTED;
+
+-- SERIALIZABLE (en yüksek izolasyon)
+ALTER SESSION SET ISOLATION_LEVEL = SERIALIZABLE;
+
+-- Automatic transaction management
+-- DDL komutları (CREATE, ALTER, DROP) otomatik COMMIT yapar
+CREATE TABLE temp_table (id NUMBER);
+-- Üsteki komut otomatik olarak önceki tüm değişiklikleri COMMIT eder
+
+-- AUTOCOMMIT setting (SQL*Plus'ta)
+-- SET AUTOCOMMIT ON;  -- Her DML sonrası otomatik COMMIT
+-- SET AUTOCOMMIT OFF; -- Manuel COMMIT gerekir (default)
 ```
 
-## 11. Views
+## 11. Views (Sanallar)
+
+**Ne İşe Yarar:** View, bir veya daha fazla tabloya dayalı sanal tablolardır. Karmaşık sorguları basitleştirir ve güvenlik sağlar.
 
 ```sql
--- Basit view
+-- Basit view oluşturma
+-- Çalışan ve departman bilgilerini birleştiren view
 CREATE VIEW emp_dept_view AS
-SELECT e.employee_id, e.first_name, e.last_name, e.salary,
-       d.department_name, d.location_id
+SELECT
+    e.employee_id,
+    e.first_name,
+    e.last_name,
+    e.salary,
+    e.hire_date,
+    d.department_name,
+    d.location_id,
+    l.city,
+    l.country_id
 FROM employees e
-JOIN departments d ON e.department_id = d.department_id;
+JOIN departments d ON e.department_id = d.department_id
+JOIN locations l ON d.location_id = l.location_id;
+
+-- View kullanımı (tıpkı tablo gibi)
+SELECT * FROM emp_dept_view WHERE city = 'Seattle';
+SELECT department_name, COUNT(*) FROM emp_dept_view GROUP BY department_name;
 
 -- Complex view with calculations
+-- Departman bazında maaş analizi view'u
 CREATE VIEW salary_analysis AS
+SELECT
+    d.department_id,
+    d.department_name,
+    COUNT(e.employee_id) as emp_count,
+    AVG(e.salary) as avg_salary,
+    MAX(e.salary) as max_salary,
+    MIN(e.salary) as min_salary,
+    STDDEV(e.salary) as salary_stddev,
+    SUM(e.salary) as total_salary_cost,
+    -- Maaş dağılımı
+    COUNT(CASE WHEN e.salary > 15000 THEN 1 END) as high_earners,
+    COUNT(CASE WHEN e.salary BETWEEN 5000 AND 15000 THEN 1 END) as mid_earners,
+    COUNT(CASE WHEN e.salary < 5000 THEN 1 END) as low_earners
+FROM departments d
+LEFT JOIN employees e ON d.department_id = e.department_id
+GROUP BY d.department_id, d.department_name;
+
+-- Updatable view (güncellenebilir view)
+-- Tek tablodan oluşan view'lar genelde güncellenebilir
+CREATE VIEW active_employees AS
+SELECT employee_id, first_name, last_name, salary, department_id
+FROM employees
+WHERE department_id IS NOT NULL
+WITH CHECK OPTION;  -- UPDATE/INSERT'te WHERE koşulunu zorlar
+
+-- View üzerinden güncelleme
+UPDATE active_employees
+SET salary = salary * 1.1
+WHERE employee_id = 100;
+
+-- Security view örneği
+-- Hassas bilgileri gizleyen view
+CREATE VIEW public_employee_info AS
+SELECT
+    employee_id,
+    first_name,
+    last_name,
+    CASE
+        WHEN LENGTH(email) > 0 THEN
+            SUBSTR(email, 1, 2) || '***@' || SUBSTR(email, INSTR(email, '@')+1)
+        ELSE NULL
+    END as masked_email,  -- Email maskeleme
+    department_id,
+    hire_date,
+    -- Maaş aralığı gösterme (tam sayı değil)
+    CASE
+        WHEN salary > 15000 THEN '15000+'
+        WHEN salary > 10000 THEN '10000-15000'
+        WHEN salary > 5000 THEN '5000-10000'
+        ELSE '0-5000'
+    END as salary_range
+FROM employees;
+
+-- Materialized view (performans için)
+-- Fiziksel olarak sonuçları saklar, büyük veriler için hızlıdır
+CREATE MATERIALIZED VIEW mv_dept_summary
+REFRESH FAST ON COMMIT  -- Her COMMIT'te yenile
+AS
 SELECT
     department_id,
     COUNT(*) as emp_count,
+    SUM(salary) as total_salary,
     AVG(salary) as avg_salary,
-    MAX(salary) as max_salary,
-    MIN(salary) as min_salary,
-    STDDEV(salary) as salary_stddev
+    MAX(hire_date) as last_hire_date
 FROM employees
 GROUP BY department_id;
 
--- Materialized view (performance için)
-CREATE MATERIALIZED VIEW mv_dept_summary
-REFRESH FAST ON COMMIT
-AS
-SELECT department_id, COUNT(*) as emp_count, SUM(salary) as total_salary
-FROM employees
-GROUP BY department_id;
+-- Materialized view yenileme seçenekleri
+-- REFRESH COMPLETE: Tümünü yeniden hesapla
+-- REFRESH FAST: Sadece değişen kısımları güncelle (materialized view log gerekir)
+-- REFRESH FORCE: Mümkünse FAST, değilse COMPLETE
+
+-- Manual materialized view refresh
+EXEC DBMS_MVIEW.REFRESH('mv_dept_summary', 'C');  -- Complete refresh
+
+-- View metadata sorguları
+-- Kullanıcının view'larını listele
+SELECT view_name, text_length, read_only
+FROM user_views;
+
+-- View tanımını görüntüle
+SELECT text FROM user_views WHERE view_name = 'EMP_DEPT_VIEW';
+
+-- View silme
+DROP VIEW emp_dept_view;
+DROP MATERIALIZED VIEW mv_dept_summary;
 ```
 
-## 12. Sequences
+## 12. Sequences (Sıra Numarası Üreticileri)
+
+**Ne İşe Yarar:** Sequence, benzersiz sayısal değerler üreten Oracle nesnesidir. Genelde PRIMARY KEY için kullanılır.
 
 ```sql
 -- Sequence oluşturma
 CREATE SEQUENCE emp_seq
-START WITH 1000
-INCREMENT BY 1
-MAXVALUE 999999
-NOCYCLE
-CACHE 20;
+    START WITH 1000        -- Başlangıç değeri
+    INCREMENT BY 1         -- Her seferinde artış miktarı
+    MAXVALUE 999999        -- Maksimum değer
+    MINVALUE 1             -- Minimum değer (CYCLE kullanıldığında)
+    NOCYCLE                -- Max'a ulaştığında başa dönmesin
+    CACHE 20               -- Performans için 20 değer önceden hafızaya al
+    ORDER;                 -- Sıralı üretim garanti et (RAC ortamında önemli)
 
 -- Sequence kullanımı
-INSERT INTO employees (employee_id, first_name, last_name)
-VALUES (emp_seq.NEXTVAL, 'John', 'Doe');
+-- NEXTVAL: Sonraki değeri al ve sequence'i arttır
+INSERT INTO employees (employee_id, first_name, last_name, email, hire_date)
+VALUES (emp_seq.NEXTVAL, 'John', 'Doe', 'john.doe@company.com', SYSDATE);
 
--- Sequence bilgileri
-SELECT emp_seq.CURRVAL FROM DUAL; -- Son kullanılan değer
-SELECT emp_seq.NEXTVAL FROM DUAL; -- Sonraki değer
+-- CURRVAL: Son alınan değeri görüntüle (aynı session'da NEXTVAL'dan sonra kullanılabilir)
+SELECT emp_seq.CURRVAL FROM DUAL;
+
+-- Sequence bilgilerini görüntüleme
+SELECT
+    sequence_name,
+    min_value,
+    max_value,
+    increment_by,
+    last_number,           -- Son üretilen numara
+    cache_size,
+    cycle_flag,
+    order_flag
+FROM user_sequences
+WHERE sequence_name = 'EMP_SEQ';
+
+-- Sequence değiştirme
+ALTER SEQUENCE emp_seq
+    INCREMENT BY 5         -- Artış miktarını değiştir
+    MAXVALUE 9999999       -- Max değeri yükselt
+    CACHE 50;              -- Cache boyutunu artır
+
+-- Sequence'i belirli bir değere set etme (doğrudan yok, trick gerekir)
+-- Örneğin 5000'den başlamasını istiyorsak:
+DECLARE
+    current_val NUMBER;
+    target_val NUMBER := 5000;
+BEGIN
+    -- Şu anki değeri al
+    SELECT emp_seq.NEXTVAL INTO current_val FROM DUAL;
+
+    -- Hedef değere kadar sequence'i arttır
+    IF current_val < target_val THEN
+        EXECUTE IMMEDIATE 'ALTER SEQUENCE emp_seq INCREMENT BY ' || (target_val - current_val);
+        SELECT emp_seq.NEXTVAL INTO current_val FROM DUAL;  -- Hedef değere çıkar
+        EXECUTE IMMEDIATE 'ALTER SEQUENCE emp_seq INCREMENT BY 1';  -- Normal artışa dön
+    END IF;
+END;
+/
+
+-- Farklı sequence örnekleri
+
+-- Çift sayılar için sequence
+CREATE SEQUENCE even_numbers_seq
+    START WITH 2
+    INCREMENT BY 2
+    MAXVALUE 999998
+    NOCYCLE
+    CACHE 10;
+
+-- Negatif yönde giden sequence
+CREATE SEQUENCE countdown_seq
+    START WITH 1000
+    INCREMENT BY -1
+    MINVALUE 1
+    MAXVALUE 1000
+    NOCYCLE
+    CACHE 5;
+
+-- Cycle yapan sequence (max'a ulaşınca başa döner)
+CREATE SEQUENCE monthly_cycle_seq
+    START WITH 1
+    INCREMENT BY 1
+    MAXVALUE 12
+    MINVALUE 1
+    CYCLE               -- 12'ye ulaşınca 1'e döner
+    CACHE 3;
+
+-- Practical kullanım örnekleri
+
+-- Order numarası için
+CREATE SEQUENCE order_number_seq
+    START WITH 100001
+    INCREMENT BY 1
+    MAXVALUE 999999999
+    NOCYCLE
+    CACHE 100;          -- Yüksek cache (sık kullanım için)
+
+-- Yıllık rapor ID'si için (2024001, 2024002, ...)
+CREATE SEQUENCE report_2024_seq
+    START WITH 2024001
+    INCREMENT BY 1
+    MAXVALUE 2024999
+    NOCYCLE
+    NOCACHE;            -- Cache yok (düşük kullanım)
+
+-- Multiple table'da aynı sequence kullanma
+INSERT INTO customers (customer_id, name) VALUES (emp_seq.NEXTVAL, 'ABC Corp');
+INSERT INTO suppliers (supplier_id, name) VALUES (emp_seq.NEXTVAL, 'XYZ Ltd');
+-- Her ikisi de farklı ID alacak
+
+-- Sequence gaps (boşluklar)
+-- ROLLBACK yapılırsa sequence geri almaz, boşluk oluşur
+BEGIN
+    INSERT INTO employees (employee_id, first_name) VALUES (emp_seq.NEXTVAL, 'Test');
+    ROLLBACK;  -- INSERT geri alınır ama sequence numara boşa gider
+END;
+/
+
+-- Sequence silme
+DROP SEQUENCE emp_seq;
+
+-- Performance ipucu: NOCACHE vs CACHE
+-- NOCACHE: Her NEXTVAL için disk'e yazma (yavaş ama boşluk yok)
+-- CACHE: Hafızada tutma (hızlı ama sistem crash'te boşluk olabilir)
 ```
 
 ## Pratik Egzersizler

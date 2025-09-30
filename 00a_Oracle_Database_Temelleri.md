@@ -407,21 +407,83 @@ DROP INDEX idx_emp_lastname;
 
 ### Bitmap Index
 
+**Ne İşe Yarar:** Düşük cardinality (az sayıda farklı değer) sütunlar için optimize edilmiş index tipi.
+
 ```sql
--- Low cardinality columns için
+-- Low cardinality columns için (cinsiyet, durum, bölge gibi)
+-- Sadece birkaç farklı değer içeren sütunlarda verimli
 CREATE BITMAP INDEX idx_emp_gender ON employees(gender);
+-- gender sütunu: 'M', 'F' sadece 2 değer
+
 CREATE BITMAP INDEX idx_emp_status ON employees(status);
+-- status sütunu: 'ACTIVE', 'INACTIVE', 'TERMINATED' sadece 3 değer
+
+CREATE BITMAP INDEX idx_emp_job_level ON employees(job_level);
+-- job_level: 'ENTRY', 'JUNIOR', 'SENIOR', 'LEAD' sadece 4 değer
+
+-- Bitmap index'lerin avantajı: Karmaşık WHERE koşullarında çok hızlı
+SELECT COUNT(*)
+FROM employees
+WHERE gender = 'F'
+  AND status = 'ACTIVE'
+  AND job_level = 'SENIOR';
+-- Birden fazla bitmap index otomatik birleştirilir
+
+-- Bitmap index metadata
+SELECT index_name, table_name, compression
+FROM user_indexes
+WHERE index_type = 'BITMAP';
+
+-- Not: Bitmap index'ler DML ağır tablolarda yavaş olabilir
+-- OLTP (sık INSERT/UPDATE) yerine OLAP (analiz) sistemleri için uygun
 ```
 
 ### Function-Based Index
 
+**Ne İşe Yarar:** Fonksiyon sonuçları üzerinde index oluşturur. WHERE clause'da fonksiyon kullanıldığında performans sağlar.
+
 ```sql
 -- Function sonucu üzerinde index
+-- Büyük/küçük harf duyarsız arama için
 CREATE INDEX idx_emp_upper_name ON employees(UPPER(last_name));
-CREATE INDEX idx_emp_salary_tax ON employees(salary * 0.3);
 
--- Bu index kullanılacak
+-- Hesaplanmış değerler üzerinde index
+CREATE INDEX idx_emp_salary_tax ON employees(salary * 0.3);
+CREATE INDEX idx_emp_annual_sal ON employees(salary * 12);
+
+-- String manipulasyon fonksiyonları
+CREATE INDEX idx_emp_substr_email ON employees(SUBSTR(email, 1, INSTR(email, '@')-1));
+-- Email'in @ işaretinden önceki kısmı üzerinde index
+
+-- Tarih fonksiyonları ile
+CREATE INDEX idx_emp_hire_year ON employees(EXTRACT(YEAR FROM hire_date));
+CREATE INDEX idx_emp_hire_month ON employees(TO_CHAR(hire_date, 'YYYY-MM'));
+
+-- Bu index'ler kullanılacak sorgular:
 SELECT * FROM employees WHERE UPPER(last_name) = 'SMITH';
+-- Normal index: WHERE last_name = 'SMITH' bu index'i kullanamaz
+-- Function-based index sayesinde UPPER(last_name) sorgusu hızlı çalışır
+
+SELECT * FROM employees WHERE salary * 0.3 > 1500;  -- Vergi > 1500
+SELECT * FROM employees WHERE EXTRACT(YEAR FROM hire_date) = 2023;
+
+-- Function-based index requirements
+-- 1. QUERY_REWRITE_ENABLED = TRUE olmalı
+-- 2. COMPATIBLE initialization parameter uygun olmalı
+-- 3. Function deterministic olmalı (aynı input -> aynı output)
+
+-- Deterministic function örneği
+CREATE OR REPLACE FUNCTION calculate_bonus(p_salary NUMBER)
+RETURN NUMBER DETERMINISTIC IS
+BEGIN
+    RETURN p_salary * 0.1;
+END;
+/
+
+CREATE INDEX idx_emp_bonus ON employees(calculate_bonus(salary));
+
+-- Index statistics toplama (function-based index'ler için önemli)
+EXEC DBMS_STATS.GATHER_TABLE_STATS('HR', 'EMPLOYEES');
 ```
 
 ### Reverse Key Index
@@ -431,49 +493,156 @@ SELECT * FROM employees WHERE UPPER(last_name) = 'SMITH';
 CREATE INDEX idx_emp_id_rev ON employees(employee_id) REVERSE;
 ```
 
-## 7. Partitioning
+## 7. Partitioning (Bölümleme)
+
+**Ne İşe Yarar:** Büyük tabloları daha küçük, yönetilebilir parçalara böler. Performans ve bakım avantajı sağlar.
 
 ### Range Partitioning
 
+**Ne Zaman Kullanılır:** Tarih, sayı gibi sıralanabilir değerler için. En yaygın tür.
+
 ```sql
+-- Tarih bazında range partitioning
 CREATE TABLE sales (
     sale_id NUMBER,
     sale_date DATE,
-    amount NUMBER
+    amount NUMBER,
+    customer_id NUMBER
 )
 PARTITION BY RANGE (sale_date) (
+    PARTITION sales_2022 VALUES LESS THAN (DATE '2023-01-01'),
     PARTITION sales_2023 VALUES LESS THAN (DATE '2024-01-01'),
     PARTITION sales_2024 VALUES LESS THAN (DATE '2025-01-01'),
-    PARTITION sales_future VALUES LESS THAN (MAXVALUE)
+    PARTITION sales_future VALUES LESS THAN (MAXVALUE)  -- Gelecek tarihler
 );
+
+-- Maaş bazında range partitioning
+CREATE TABLE employee_salaries (
+    emp_id NUMBER,
+    salary NUMBER,
+    effective_date DATE
+)
+PARTITION BY RANGE (salary) (
+    PARTITION low_salary VALUES LESS THAN (5000),
+    PARTITION mid_salary VALUES LESS THAN (15000),
+    PARTITION high_salary VALUES LESS THAN (50000),
+    PARTITION exec_salary VALUES LESS THAN (MAXVALUE)
+);
+
+-- Partition elimination örneği (sadece ilgili partition'lar scan edilir)
+SELECT * FROM sales WHERE sale_date >= DATE '2024-01-01' AND sale_date < DATE '2024-06-01';
+-- Sadece sales_2024 partition'u scan edilir, diğerleri atlanır
 ```
 
 ### Hash Partitioning
 
+**Ne Zaman Kullanılır:** Eşit dağılım istendiğinde, belirli bir sıralama önemli olmadığında.
+
 ```sql
+-- Employee ID bazında hash partitioning
 CREATE TABLE employees (
     emp_id NUMBER,
     first_name VARCHAR2(50),
-    last_name VARCHAR2(50)
+    last_name VARCHAR2(50),
+    department_id NUMBER
 )
 PARTITION BY HASH (emp_id)
-PARTITIONS 4;
+PARTITIONS 4;  -- Oracle otomatik olarak 4 eşit partition oluşturur
+-- Partition isimleri: SYS_P1, SYS_P2, SYS_P3, SYS_P4
+
+-- İsimlendirilmiş hash partitions
+CREATE TABLE customer_orders (
+    order_id NUMBER,
+    customer_id NUMBER,
+    order_date DATE
+)
+PARTITION BY HASH (customer_id) (
+    PARTITION part1,
+    PARTITION part2,
+    PARTITION part3,
+    PARTITION part4
+);
+
+-- Hash partitioning avantajı: Otomatik eşit dağılım
+-- Her partition yaklaşık aynı sayıda kayıt içerir
 ```
 
 ### List Partitioning
 
+**Ne Zaman Kullanılır:** Belirli değerlere göre gruplama gerektiğinde.
+
 ```sql
+-- Bölge bazında list partitioning
 CREATE TABLE sales_by_region (
     sale_id NUMBER,
     region VARCHAR2(20),
-    amount NUMBER
+    amount NUMBER,
+    sale_date DATE
 )
 PARTITION BY LIST (region) (
-    PARTITION north VALUES ('NORTH', 'NORTHEAST'),
-    PARTITION south VALUES ('SOUTH', 'SOUTHEAST'),
-    PARTITION west VALUES ('WEST', 'NORTHWEST'),
-    PARTITION east VALUES ('EAST')
+    PARTITION north VALUES ('NORTH', 'NORTHEAST', 'NORTHWEST'),
+    PARTITION south VALUES ('SOUTH', 'SOUTHEAST', 'SOUTHWEST'),
+    PARTITION west VALUES ('WEST', 'WEST_COAST'),
+    PARTITION east VALUES ('EAST', 'EAST_COAST'),
+    PARTITION international VALUES ('EUROPE', 'ASIA', 'AFRICA')
 );
+
+-- Durum bazında list partitioning
+CREATE TABLE employee_records (
+    emp_id NUMBER,
+    status VARCHAR2(20),
+    last_updated DATE
+)
+PARTITION BY LIST (status) (
+    PARTITION active_emp VALUES ('ACTIVE', 'ON_LEAVE'),
+    PARTITION inactive_emp VALUES ('TERMINATED', 'RETIRED'),
+    PARTITION pending_emp VALUES ('PENDING', 'PROBATION')
+);
+
+-- List partition'a yeni değer ekleme
+ALTER TABLE sales_by_region
+MODIFY PARTITION international ADD VALUES ('AUSTRALIA');
+```
+
+### Composite Partitioning
+
+```sql
+-- Range-Hash: Önce tarihe göre range, sonra hash
+CREATE TABLE sales_data (
+    sale_id NUMBER,
+    sale_date DATE,
+    customer_id NUMBER,
+    amount NUMBER
+)
+PARTITION BY RANGE (sale_date)
+SUBPARTITION BY HASH (customer_id) SUBPARTITIONS 4 (
+    PARTITION sales_2023 VALUES LESS THAN (DATE '2024-01-01'),
+    PARTITION sales_2024 VALUES LESS THAN (DATE '2025-01-01')
+);
+-- Her range partition'u 4 hash subpartition'a bölünür
+```
+
+### Partition Maintenance
+
+```sql
+-- Yeni partition ekleme
+ALTER TABLE sales ADD PARTITION sales_2025
+VALUES LESS THAN (DATE '2026-01-01');
+
+-- Partition silme
+ALTER TABLE sales DROP PARTITION sales_2022;
+
+-- Partition split etme
+ALTER TABLE sales SPLIT PARTITION sales_future
+AT (DATE '2026-01-01')
+INTO (PARTITION sales_2025, PARTITION sales_future);
+
+-- Partition truncate (içeriği sil)
+ALTER TABLE sales TRUNCATE PARTITION sales_2023;
+
+-- Partition exchange (başka tablo ile değiştir)
+ALTER TABLE sales EXCHANGE PARTITION sales_2023
+WITH TABLE sales_2023_backup;
 ```
 
 ## 8. Security
