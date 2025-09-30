@@ -418,6 +418,498 @@ SELECT * FROM get_high_earners(10000);
 
 Bu kapsamlı SQL temelleri dökümantasyonu ile Oracle Database ve PL/SQL öğrenme yolculuğunuz için sağlam bir foundation oluşturdunuz. Artık PL/SQL'e geçmeye hazırsınız!
 
+## 18. INDEX YAPILARI VE KULLANIMI
+
+**Ne İşe Yarar:** Index'ler, tablolardaki verilere hızlı erişim sağlayan veri yapılarıdır. Kitaptaki "içindekiler" sayfası gibi düşünebilirsiniz.
+
+### Index Türleri
+
+#### B-Tree Index (Varsayılan)
+
+```sql
+-- Tek sütunlu index
+CREATE INDEX idx_emp_lastname ON employees(last_name);
+
+-- Çoklu sütunlu index (composite)
+-- Sütun sırası önemli: en seçici sütun başta olmalı
+CREATE INDEX idx_emp_dept_sal ON employees(department_id, salary);
+
+-- Unique index (benzersiz değerler)
+CREATE UNIQUE INDEX idx_emp_email ON employees(email);
+
+-- Descending index
+CREATE INDEX idx_emp_sal_desc ON employees(salary DESC);
+
+-- Function-based index
+CREATE INDEX idx_emp_upper_name ON employees(UPPER(last_name));
+
+-- Index bilgilerini görme
+SELECT index_name, uniqueness, status, num_rows
+FROM user_indexes
+WHERE table_name = 'EMPLOYEES';
+
+-- Index'in hangi sütunlarda olduğunu görme
+SELECT index_name, column_name, column_position
+FROM user_ind_columns
+WHERE table_name = 'EMPLOYEES'
+ORDER BY index_name, column_position;
+```
+
+#### Bitmap Index
+
+```sql
+-- Düşük cardinality (az farklı değer) için uygun
+-- Örnek: cinsiyet, departman, durum gibi sütunlar
+CREATE BITMAP INDEX idx_emp_gender ON employees(gender);
+CREATE BITMAP INDEX idx_emp_status ON employees(status);
+
+-- Bitmap index'ler OR, AND operasyonlarında çok hızlı
+SELECT * FROM employees
+WHERE gender = 'M' AND status = 'ACTIVE'; -- Bitmap index'ler kullanılır
+```
+
+#### Reverse Key Index
+
+```sql
+-- Sequential insert'lerde hot block sorununu çözer
+CREATE INDEX idx_emp_id_reverse ON employees(employee_id) REVERSE;
+```
+
+### Index Kullanım Kuralları
+
+```sql
+-- Index'in kullanılacağı durumlar:
+-- 1. Equality operations (=)
+SELECT * FROM employees WHERE employee_id = 100; -- Index kullanır
+
+-- 2. Range scans (>, <, BETWEEN)
+SELECT * FROM employees WHERE salary BETWEEN 5000 AND 10000; -- Index kullanır
+
+-- 3. LIKE with leading characters
+SELECT * FROM employees WHERE last_name LIKE 'Smith%'; -- Index kullanır
+
+-- Index'in KULLANILMAYACAĞI durumlar:
+-- 1. Leading wildcard LIKE
+SELECT * FROM employees WHERE last_name LIKE '%Smith'; -- Index kullanmaz
+
+-- 2. Function wrapping
+SELECT * FROM employees WHERE UPPER(last_name) = 'SMITH'; -- Index kullanmaz
+-- Çözüm: Function-based index oluştur
+
+-- 3. NOT EQUAL operations
+SELECT * FROM employees WHERE department_id != 10; -- Index kullanmaz
+
+-- 4. OR conditions on different columns
+SELECT * FROM employees WHERE last_name = 'Smith' OR salary > 10000; -- Index kullanmaz
+```
+
+### Index Yönetimi
+
+```sql
+-- Index silme
+DROP INDEX idx_emp_lastname;
+
+-- Index yeniden oluşturma (fragmentation temizleme)
+ALTER INDEX idx_emp_lastname REBUILD;
+
+-- Index disable/enable
+ALTER INDEX idx_emp_lastname UNUSABLE;
+ALTER INDEX idx_emp_lastname REBUILD;
+
+-- Index monitoring (kullanılıp kullanılmadığını takip)
+ALTER INDEX idx_emp_lastname MONITORING USAGE;
+
+-- Monitoring sonuçlarını görme
+SELECT * FROM v$object_usage WHERE index_name = 'IDX_EMP_LASTNAME';
+```
+
+## 19. CONSTRAINT'LER (KISITLAMALAR)
+
+**Ne İşe Yarar:** Constraint'ler, tablolara girilen verilerin belirli kurallara uymasını sağlayan kısıtlamalardır. Veri bütünlüğünü korur.
+
+### Primary Key Constraint
+
+```sql
+-- Tablo oluştururken Primary Key
+CREATE TABLE departments (
+    dept_id NUMBER PRIMARY KEY,
+    dept_name VARCHAR2(50) NOT NULL
+);
+
+-- İsimli constraint (tercih edilen yöntem)
+CREATE TABLE employees (
+    emp_id NUMBER,
+    first_name VARCHAR2(50),
+    CONSTRAINT pk_emp PRIMARY KEY (emp_id)
+);
+
+-- Composite Primary Key
+CREATE TABLE order_items (
+    order_id NUMBER,
+    item_id NUMBER,
+    quantity NUMBER,
+    CONSTRAINT pk_order_items PRIMARY KEY (order_id, item_id)
+);
+
+-- Mevcut tabloya Primary Key ekleme
+ALTER TABLE employees ADD CONSTRAINT pk_emp PRIMARY KEY (emp_id);
+
+-- Primary Key silme
+ALTER TABLE employees DROP CONSTRAINT pk_emp;
+```
+
+### Foreign Key Constraint
+
+```sql
+-- Foreign Key oluşturma
+CREATE TABLE employees (
+    emp_id NUMBER PRIMARY KEY,
+    first_name VARCHAR2(50),
+    dept_id NUMBER,
+    CONSTRAINT fk_emp_dept FOREIGN KEY (dept_id)
+        REFERENCES departments(dept_id)
+);
+
+-- Cascade seçenekleri
+ALTER TABLE employees
+ADD CONSTRAINT fk_emp_dept FOREIGN KEY (dept_id)
+    REFERENCES departments(dept_id)
+    ON DELETE CASCADE;  -- Parent silinince child'lar da silinir
+
+-- Diğer cascade seçenekleri:
+-- ON DELETE SET NULL     - Parent silinince child FK değeri NULL olur
+-- ON DELETE RESTRICT     - Parent silinirse hata verir (varsayılan)
+
+-- Self-referencing Foreign Key (manager-employee ilişkisi)
+ALTER TABLE employees
+ADD CONSTRAINT fk_emp_manager FOREIGN KEY (manager_id)
+    REFERENCES employees(emp_id);
+```
+
+### Check Constraint
+
+```sql
+-- Check constraint'ler veri değerlerini kontrol eder
+CREATE TABLE employees (
+    emp_id NUMBER PRIMARY KEY,
+    first_name VARCHAR2(50) NOT NULL,
+    salary NUMBER CONSTRAINT chk_salary CHECK (salary > 0),
+    email VARCHAR2(100) CONSTRAINT chk_email
+        CHECK (email LIKE '%@%.%'),
+    gender CHAR(1) CONSTRAINT chk_gender
+        CHECK (gender IN ('M', 'F')),
+    hire_date DATE CONSTRAINT chk_hire_date
+        CHECK (hire_date <= SYSDATE),
+    status VARCHAR2(10) CONSTRAINT chk_status
+        CHECK (status IN ('ACTIVE', 'INACTIVE', 'TERMINATED'))
+);
+
+-- Karmaşık check constraint
+ALTER TABLE employees
+ADD CONSTRAINT chk_salary_range
+    CHECK ((status = 'ACTIVE' AND salary > 1000) OR status != 'ACTIVE');
+```
+
+### Unique Constraint
+
+```sql
+-- Unique constraint (NULL değerlere izin verir ama duplicate'lere izin vermez)
+CREATE TABLE employees (
+    emp_id NUMBER PRIMARY KEY,
+    email VARCHAR2(100) UNIQUE,
+    ssn VARCHAR2(11) CONSTRAINT uk_ssn UNIQUE,
+    phone VARCHAR2(15)
+);
+
+-- Composite unique constraint
+ALTER TABLE employees
+ADD CONSTRAINT uk_emp_name_dept UNIQUE (first_name, last_name, dept_id);
+```
+
+### Not Null Constraint
+
+```sql
+-- Not Null constraint
+CREATE TABLE employees (
+    emp_id NUMBER PRIMARY KEY,
+    first_name VARCHAR2(50) NOT NULL,
+    last_name VARCHAR2(50) NOT NULL,
+    email VARCHAR2(100) NOT NULL
+);
+
+-- Mevcut sütuna Not Null ekleme
+ALTER TABLE employees MODIFY (phone VARCHAR2(15) NOT NULL);
+
+-- Not Null kaldırma
+ALTER TABLE employees MODIFY (phone VARCHAR2(15) NULL);
+```
+
+### Constraint Yönetimi
+
+```sql
+-- Constraint'leri görüntüleme
+SELECT constraint_name, constraint_type, status, validated
+FROM user_constraints
+WHERE table_name = 'EMPLOYEES';
+
+-- Constraint detaylarını görme
+SELECT c.constraint_name, c.constraint_type, cc.column_name
+FROM user_constraints c
+JOIN user_cons_columns cc ON c.constraint_name = cc.constraint_name
+WHERE c.table_name = 'EMPLOYEES';
+
+-- Constraint disable/enable
+ALTER TABLE employees DISABLE CONSTRAINT chk_salary;
+ALTER TABLE employees ENABLE CONSTRAINT chk_salary;
+
+-- Constraint silme
+ALTER TABLE employees DROP CONSTRAINT chk_salary;
+
+-- Constraint'i geçici olarak devre dışı bırakma (bulk operations için)
+ALTER TABLE employees DISABLE CONSTRAINT fk_emp_dept;
+-- Bulk data loading...
+ALTER TABLE employees ENABLE CONSTRAINT fk_emp_dept;
+```
+
+## 20. TRIGGER'LAR (OTOMATİK İŞLEMLER)
+
+**Ne İşe Yarar:** Trigger'lar, tablo üzerinde belirli olaylar (INSERT, UPDATE, DELETE) gerçekleştiğinde otomatik çalışan PL/SQL blokları'dır.
+
+### Trigger Türleri
+
+#### BEFORE Trigger'lar
+
+```sql
+-- BEFORE INSERT: Veri eklenmeden önce çalışır
+CREATE OR REPLACE TRIGGER emp_before_insert
+    BEFORE INSERT ON employees
+    FOR EACH ROW
+BEGIN
+    -- ID otomatik atama
+    IF :NEW.employee_id IS NULL THEN
+        :NEW.employee_id := emp_seq.NEXTVAL;
+    END IF;
+
+    -- Email büyük harfe çevir
+    :NEW.email := UPPER(:NEW.email);
+
+    -- Hire date kontrolü
+    IF :NEW.hire_date IS NULL THEN
+        :NEW.hire_date := SYSDATE;
+    END IF;
+
+    -- Maaş kontrolü
+    IF :NEW.salary < 1000 THEN
+        RAISE_APPLICATION_ERROR(-20001, 'Maaş minimum 1000 TL olmalı');
+    END IF;
+END;
+/
+
+-- BEFORE UPDATE: Güncellenmeden önce çalışır
+CREATE OR REPLACE TRIGGER emp_before_update
+    BEFORE UPDATE ON employees
+    FOR EACH ROW
+BEGIN
+    -- Güncelleme bilgilerini otomatik doldur
+    :NEW.last_update_date := SYSDATE;
+    :NEW.last_update_by := USER;
+
+    -- Maaş değişimi kontrolü
+    IF :NEW.salary != :OLD.salary THEN
+        -- %50'den fazla artış kontrolü
+        IF :NEW.salary > :OLD.salary * 1.5 THEN
+            RAISE_APPLICATION_ERROR(-20002,
+                'Maaş artışı %50''den fazla olamaz!');
+        END IF;
+    END IF;
+END;
+/
+```
+
+#### AFTER Trigger'lar
+
+```sql
+-- AFTER INSERT: Veri eklendikten sonra çalışır (audit için ideal)
+CREATE OR REPLACE TRIGGER emp_after_insert
+    AFTER INSERT ON employees
+    FOR EACH ROW
+BEGIN
+    -- Audit kaydı oluştur
+    INSERT INTO employee_audit (
+        action_type, employee_id, action_date, action_by,
+        new_salary, employee_name
+    ) VALUES (
+        'INSERT', :NEW.employee_id, SYSDATE, USER,
+        :NEW.salary, :NEW.first_name || ' ' || :NEW.last_name
+    );
+
+    -- Hoşgeldin email'i gönder
+    send_welcome_email(:NEW.email, :NEW.first_name);
+END;
+/
+
+-- AFTER UPDATE: Güncellendikten sonra çalışır
+CREATE OR REPLACE TRIGGER emp_after_update
+    AFTER UPDATE ON employees
+    FOR EACH ROW
+BEGIN
+    -- Maaş değişikliği audit'i
+    IF :NEW.salary != :OLD.salary THEN
+        INSERT INTO salary_audit (
+            employee_id, old_salary, new_salary,
+            change_date, changed_by, change_percentage
+        ) VALUES (
+            :NEW.employee_id, :OLD.salary, :NEW.salary,
+            SYSDATE, USER,
+            ((:NEW.salary - :OLD.salary) / :OLD.salary) * 100
+        );
+    END IF;
+END;
+/
+
+-- AFTER DELETE: Silindikten sonra çalışır
+CREATE OR REPLACE TRIGGER emp_after_delete
+    AFTER DELETE ON employees
+    FOR EACH ROW
+BEGIN
+    -- Silinen çalışan audit'i
+    INSERT INTO employee_audit (
+        action_type, employee_id, action_date, action_by,
+        old_salary, employee_name
+    ) VALUES (
+        'DELETE', :OLD.employee_id, SYSDATE, USER,
+        :OLD.salary, :OLD.first_name || ' ' || :OLD.last_name
+    );
+
+    -- İlgili verileri temizle
+    DELETE FROM employee_permissions WHERE emp_id = :OLD.employee_id;
+    DELETE FROM employee_preferences WHERE emp_id = :OLD.employee_id;
+END;
+/
+```
+
+#### Compound Trigger
+
+```sql
+-- Birden fazla timing event'i tek trigger'da
+CREATE OR REPLACE TRIGGER emp_compound_audit
+    FOR INSERT OR UPDATE OR DELETE ON employees
+    COMPOUND TRIGGER
+
+    -- Global değişkenler
+    TYPE audit_array IS TABLE OF employee_audit%ROWTYPE;
+    g_audit_records audit_array := audit_array();
+
+    -- BEFORE STATEMENT: İşlem başlamadan önce
+    BEFORE STATEMENT IS
+    BEGIN
+        DBMS_OUTPUT.PUT_LINE('Employees tablosunda toplu işlem başlıyor');
+        g_audit_records.DELETE; -- Array'i temizle
+    END BEFORE STATEMENT;
+
+    -- AFTER EACH ROW: Her satır işlendikten sonra
+    AFTER EACH ROW IS
+        v_audit_rec employee_audit%ROWTYPE;
+    BEGIN
+        -- Audit kaydı hazırla
+        v_audit_rec.employee_id := COALESCE(:NEW.employee_id, :OLD.employee_id);
+        v_audit_rec.action_date := SYSDATE;
+        v_audit_rec.action_by := USER;
+
+        IF INSERTING THEN
+            v_audit_rec.action_type := 'INSERT';
+            v_audit_rec.new_salary := :NEW.salary;
+        ELSIF UPDATING THEN
+            v_audit_rec.action_type := 'UPDATE';
+            v_audit_rec.old_salary := :OLD.salary;
+            v_audit_rec.new_salary := :NEW.salary;
+        ELSIF DELETING THEN
+            v_audit_rec.action_type := 'DELETE';
+            v_audit_rec.old_salary := :OLD.salary;
+        END IF;
+
+        -- Array'e ekle
+        g_audit_records.EXTEND;
+        g_audit_records(g_audit_records.COUNT) := v_audit_rec;
+    END AFTER EACH ROW;
+
+    -- AFTER STATEMENT: Tüm işlem bittikten sonra
+    AFTER STATEMENT IS
+    BEGIN
+        -- Toplu audit insert
+        FORALL i IN 1..g_audit_records.COUNT
+            INSERT INTO employee_audit VALUES g_audit_records(i);
+
+        DBMS_OUTPUT.PUT_LINE('Audit kayıtları: ' || g_audit_records.COUNT);
+    END AFTER STATEMENT;
+
+END emp_compound_audit;
+/
+```
+
+### Trigger Yönetimi
+
+```sql
+-- Trigger'ları görüntüleme
+SELECT trigger_name, trigger_type, triggering_event, status
+FROM user_triggers
+WHERE table_name = 'EMPLOYEES';
+
+-- Trigger'ı disable/enable etme
+ALTER TRIGGER emp_before_insert DISABLE;
+ALTER TRIGGER emp_before_insert ENABLE;
+
+-- Tablo üzerindeki tüm trigger'ları disable etme
+ALTER TABLE employees DISABLE ALL TRIGGERS;
+ALTER TABLE employees ENABLE ALL TRIGGERS;
+
+-- Trigger silme
+DROP TRIGGER emp_before_insert;
+
+-- Trigger kodunu görme
+SELECT trigger_body
+FROM user_triggers
+WHERE trigger_name = 'EMP_BEFORE_INSERT';
+```
+
+### Trigger Best Practices
+
+```sql
+-- ✅ İYİ: Minimal ve hızlı trigger
+CREATE OR REPLACE TRIGGER emp_audit_simple
+    AFTER INSERT OR UPDATE OR DELETE ON employees
+    FOR EACH ROW
+BEGIN
+    INSERT INTO audit_log (table_name, action, record_id, action_date)
+    VALUES ('EMPLOYEES',
+            CASE WHEN INSERTING THEN 'I'
+                 WHEN UPDATING THEN 'U'
+                 ELSE 'D' END,
+            COALESCE(:NEW.employee_id, :OLD.employee_id),
+            SYSDATE);
+END;
+/
+
+-- ❌ KÖTÜ: Yavaş ve karmaşık trigger
+CREATE OR REPLACE TRIGGER emp_bad_trigger
+    BEFORE UPDATE ON employees
+    FOR EACH ROW
+BEGIN
+    -- Yavaş: Her satır için sorgu çalıştırıyor
+    FOR rec IN (SELECT * FROM complex_view WHERE dept_id = :NEW.dept_id) LOOP
+        -- Karmaşık işlemler...
+        NULL;
+    END LOOP;
+
+    -- Recursive risk: Aynı tabloyu güncelliyor
+    UPDATE employees SET last_update = SYSDATE
+    WHERE employee_id = :NEW.employee_id;
+END;
+/
+```
+
+Bu eklediğim konularla birlikte artık SQL temelleriniz tamamen eksiksiz! 🎯
+
 ### DML (Data Manipulation Language) - Veri İşleme Dili
 
 **Ne İşe Yarar:** Tablolardaki verileri eklemek, güncellemek, silmek için kullanılır.
