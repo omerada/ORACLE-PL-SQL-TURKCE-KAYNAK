@@ -30,7 +30,7 @@ Hiç PL/SQL bilmeyen birinin Oracle ecosystem'inde expert seviyeye ulaşması i�
 │   └── 07_Modernizasyon_Mikroservis.md        📔 Legacy to Microservices Migration
 │
 └── 🗺️ SUMMARY & ROADMAP
-    └── 08_Ozet_Yol_Haritasi.md               📋 Complete Learning Path & Career Guide
+    └── 12_Ozet_Yol_Haritasi.md               📋 Complete Learning Path & Career Guide
 ```
 
 ## 🎯 Öğrenme Seviyeleriniz
