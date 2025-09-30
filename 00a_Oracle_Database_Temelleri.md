@@ -28,27 +28,30 @@ Oracle Database, enterprise seviyesinde ilişkisel veritabanı yönetim sistemid
 - Disk üzerindeki fiziksel yapı
 
 ```
-Oracle Instance
-├── SGA (System Global Area)
-│   ├── Database Buffer Cache
-│   ├── Shared Pool
-│   ├── Redo Log Buffer
-│   └── Large Pool
-├── PGA (Program Global Area)
-└── Background Processes
-    ├── PMON (Process Monitor)
-    ├── SMON (System Monitor)
-    ├── DBWn (Database Writer)
-    ├── LGWR (Log Writer)
-    └── CKPT (Checkpoint)
+Oracle Instance - Hafıza ve Süreç Yapısı
+├── SGA (System Global Area) - Paylaşılan Hafıza
+│   ├── Database Buffer Cache - Veri sayfalarını saklar
+│   ├── Shared Pool - SQL sorgu planları ve metadata
+│   ├── Redo Log Buffer - Değişiklik kayıtları
+│   └── Large Pool - Büyük işlemler için hafıza
+├── PGA (Program Global Area) - Kullanıcı oturumu hafızası
+└── Background Processes - Arka plan işlemleri
+    ├── PMON (Process Monitor) - Süreç yönetimi
+    ├── SMON (System Monitor) - Sistem temizliği
+    ├── DBWn (Database Writer) - Veriyi diske yazar
+    ├── LGWR (Log Writer) - Log dosyalarını yazar
+    └── CKPT (Checkpoint) - Veri tutarlılığını sağlar
 ```
 
 ### Physical Database Structure
 
 ```sql
 -- Database files görüntüleme
+-- Veri dosyalarını ve boyutlarını göster (MB cinsinden)
 SELECT name, bytes/1024/1024 as size_mb FROM v$datafile;
+-- Redo log dosyalarını göster
 SELECT member FROM v$logfile;
+-- Kontrol dosyalarını göster
 SELECT name FROM v$controlfile;
 ```
 

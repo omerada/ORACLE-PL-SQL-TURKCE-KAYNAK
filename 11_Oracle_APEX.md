@@ -2,27 +2,39 @@
 
 ## 1. Oracle APEX Nedir?
 
-Oracle Application Express (APEX), Oracle Database üzerinde web uygulamaları geliştirmek için kullanılan low-code development platformudur.
+**Basit Tanım:** Oracle Application Express (APEX), Oracle Database üzerinde web uygulamaları geliştirmek için kullanılan low-code development platformudur.
+
+**Low-Code Ne Demek:** Az kod yazarak, görsel araçlarla hızlı uygulama geliştirme yaklaşımı.
+
+**Neden Önemli:** Oracle Forms'un modern, web tabanlı alternatifidir.
 
 **Ana Özellikler:**
 
 - **Low-Code Development**: Minimum kod ile uygulama geliştirme
+  - **Anlamı:** Drag-drop ile form, tablo, grafik oluşturabilirsiniz
 - **Web-Based**: Modern, responsive web uygulamaları
+  - **Anlamı:** Herhangi bir browser'dan erişilebilir, mobil uyumlu
 - **Integrated**: Oracle Database ile tam entegrasyon
+  - **Anlamı:** PL/SQL kodlarınızı direkt kullanabilirsiniz
 - **Rapid Development**: Hızlı prototipleme ve geliştirme
+  - **Anlamı:** Günler içinde çalışan uygulama oluşturabilirsiniz
 - **No Additional Licensing**: Oracle Database lisansıyla dahil
+  - **Anlamı:** Ekstra maliyet yok, Oracle DB'niz varsa APEX de var
 
 **Oracle Forms'tan Farkları:**
 
 ```
 Oracle Forms                    Oracle APEX
 ═══════════════               ═══════════════
-Client-Server                 Web-Based
-Desktop UI                    Responsive Web UI
-Java Runtime Required         Browser-Based
-Limited Mobile Support        Mobile-First Design
-Complex Deployment            Simple Web Deployment
+Client-Server                 Web-Based (İnternet üzerinden)
+Desktop UI                    Responsive Web UI (Mobil uyumlu)
+Java Runtime Required         Browser-Based (Sadece browser)
+Limited Mobile Support        Mobile-First Design (Mobil öncelikli)
+Complex Deployment            Simple Web Deployment (Kolay yayınlama)
+Legacy Technology             Modern Technology (Çağdaş)
 ```
+
+**Sonuç:** APEX, Forms'un modern dünyadaki karşılığıdır.
 
 ## 2. APEX Architecture
 

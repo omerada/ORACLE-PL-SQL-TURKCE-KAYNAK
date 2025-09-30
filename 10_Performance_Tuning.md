@@ -1,14 +1,48 @@
-# Performance Tuning ve Optimizasyon
+# Performance Tu```sql
+
+-- KÖTÜ: Cursor loop ile row-by-row processing
+-- Neden kötü: Her kayıt için ayrı UPDATE komutunu çalıştırır
+-- 1000 kayıt = 1000 UPDATE = çok yavaş!
+DECLARE
+CURSOR emp_cursor IS SELECT employee_id, salary FROM employees;
+BEGIN
+FOR emp_rec IN emp_cursor LOOP
+UPDATE employees
+SET salary = salary \* 1.1
+WHERE employee_id = emp_rec.employee_id;
+END LOOP;
+COMMIT;
+END;
+/
+
+-- İYİ: Single SQL statement
+-- Neden iyi: Tüm kayıtları tek seferde günceller
+-- 1000 kayıt = 1 UPDATE = çok hızlı!asyon
 
 ## 1. PL/SQL Performance Fundamentals
 
 ### Performance Prensipleri
 
+**Neden Performance Önemli:** Yavas kod = kullanıcı memnuniyetsizliği, kaynak israfı ve sistem yüklenmesi demektir.
+
 1. **Minimize Context Switches**: SQL ve PL/SQL engine arasındaki geçişleri azaltın
+
+   - **Basitçe:** PL/SQL'den SQL'e geçiş maliyetlidir, bu yüzden tek seferde çok iş yapın
+
 2. **Bulk Operations**: Tek tek işlemler yerine toplu işlemler
+
+   - **Örnek:** 1000 kayıt için 1000 kez UPDATE yerine 1 kez BULK UPDATE
+
 3. **Efficient SQL**: Optimize edilmiş SQL sorguları
+
+   - **Index kullanımı, doğru JOIN'ler, WHERE filtreleri**
+
 4. **Memory Management**: PGA ve UGA kullanımını optimize edin
-5. **Caching**: Frequently used data'yı cache'leyin
+
+   - **Büyük collections'ları parçalar halinde işleyin**
+
+5. **Caching**: Sık kullanılan data'yı cache'leyin
+   - **Aynı sorguyu defalarca çalıştırmayın**
 
 ## 2. SQL Performance in PL/SQL
 

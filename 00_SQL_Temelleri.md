@@ -13,12 +13,18 @@ SQL (Structured Query Language), veritabanlarında veri sorgulamak, eklemek, gü
 
 ## 2. Temel SQL Komutları
 
-### DDL (Data Definition Language)
+### DDL (Data Definition Language) - Veri Tanımlama Dili
+
+**Ne İşe Yarar:** Veritabanı nesnelerini (tablo, index, constraint vb.) oluşturmak, değiştirmek ve silmek için kullanılır.
 
 Veritabanı yapısını oluşturan komutlar:
 
 ```sql
--- Tablo oluşturma
+-- Tablo oluşturma: Çalışanlar tablosu örneği
+-- PRIMARY KEY: Tablonun birincil anahtarı, her satırı benzersiz tanımlar
+-- NOT NULL: Bu sütun boş bırakılamaz
+-- UNIQUE: Bu sütunda tekrar eden değer olamaz
+-- DEFAULT: Varsayılan değer atar
 CREATE TABLE employees (
     employee_id NUMBER(10) PRIMARY KEY,
     first_name VARCHAR2(50) NOT NULL,
@@ -31,8 +37,11 @@ CREATE TABLE employees (
 );
 
 -- Tablo yapısını değiştirme
+-- ADD: Tabloya yeni sütun ekler
 ALTER TABLE employees ADD phone VARCHAR2(20);
+-- MODIFY: Mevcut sütunun veri tipini veya boyutunu değiştirir
 ALTER TABLE employees MODIFY salary NUMBER(10,2);
+-- DROP COLUMN: Sütunu tablodan siler
 ALTER TABLE employees DROP COLUMN phone;
 
 -- Tablo silme
@@ -43,54 +52,79 @@ CREATE INDEX idx_emp_dept ON employees(department_id);
 CREATE INDEX idx_emp_name ON employees(first_name, last_name);
 ```
 
-### DML (Data Manipulation Language)
+### DML (Data Manipulation Language) - Veri İşleme Dili
+
+**Ne İşe Yarar:** Tablolardaki verileri eklemek, güncellemek, silmek için kullanılır.
 
 Veri işleme komutları:
 
 ```sql
 -- Veri ekleme
+-- INSERT INTO: Tabloya yeni kayıt ekler
+-- VALUES: Eklenecek değerleri belirtir
 INSERT INTO employees (employee_id, first_name, last_name, email, salary, department_id)
 VALUES (1, 'Ali', 'Veli', 'ali.veli@company.com', 5000, 10);
 
 -- Çoklu veri ekleme
+-- SELECT ile başka tablodan veri kopyalama
 INSERT INTO employees (employee_id, first_name, last_name, email, salary, department_id)
 SELECT emp_id, fname, lname, email_addr, sal, dept_id FROM temp_employees;
 
 -- Veri güncelleme
+-- UPDATE: Mevcut kayıtları değiştirir
+-- SET: Hangi sütunların nasıl değişeceğini belirtir
+-- WHERE: Hangi kayıtların güncelleneğini filtreler (dikkat: WHERE olmadan tüm kayıtlar güncellenir!)
 UPDATE employees
 SET salary = salary * 1.1
 WHERE department_id = 10;
 
+-- Birden fazla sütunu aynı anda güncelleme
 UPDATE employees
 SET salary = 6000, department_id = 20
-WHERE employee_id = 1;
-
--- Veri silme
+WHERE employee_id = 1;-- Veri silme
+-- DELETE: Kayıtları tablodan siler
+-- WHERE kullanmadan DELETE tüm tabloyu boşaltır, dikkatli olun!
 DELETE FROM employees WHERE employee_id = 1;
+-- Belirli tarihten önce işe başlayan çalışanları sil
 DELETE FROM employees WHERE hire_date < DATE '2020-01-01';
 ```
 
-### DQL (Data Query Language)
+### DQL (Data Query Language) - Veri Sorgulama Dili
+
+**Ne İşe Yarar:** Tablolardan veri sorgulamak, filtrelemek, sıralamak için kullanılır.
 
 Veri sorgulama komutları:
 
 ```sql
 -- Basit sorgular
+-- SELECT *: Tüm sütunları getirir (performans için önerilmez)
 SELECT * FROM employees;
+-- Sadece belirli sütunları getir (daha hızlı)
 SELECT first_name, last_name, salary FROM employees;
+-- DISTINCT: Tekrar eden değerleri tek sefer gösterir
 SELECT DISTINCT department_id FROM employees;
 
 -- WHERE koşulları
+-- Belirli koşulu sağlayan kayıtları filtreler
 SELECT * FROM employees WHERE salary > 5000;
+-- IN: Birden fazla değer içinde arama yapar
 SELECT * FROM employees WHERE department_id IN (10, 20, 30);
+-- LIKE: Metin arama yapar (% = herhangi bir karakter dizisi)
 SELECT * FROM employees WHERE first_name LIKE 'A%';
+-- BETWEEN: Belirli aralıktaki değerleri bulur
 SELECT * FROM employees WHERE hire_date BETWEEN DATE '2020-01-01' AND DATE '2023-12-31';
 
 -- Sıralama
+-- ORDER BY: Sonuçları belirli sütuna göre sıralar
+-- DESC: Büyükten küçüğe, ASC: Küçükten büyüğe (varsayılan)
 SELECT * FROM employees ORDER BY salary DESC;
+-- Birden fazla sütuna göre sıralama
 SELECT * FROM employees ORDER BY department_id, salary DESC;
 
 -- Gruplama
+-- GROUP BY: Verileri gruplar ve toplam fonksiyonlar kullanır
+-- COUNT: Sayım yapar, AVG: Ortalama, MAX/MIN: En büyük/küçük
+-- HAVING: GROUP BY sonrası filtreleme yapar (WHERE group by öncesi için)
 SELECT department_id, COUNT(*), AVG(salary), MAX(salary), MIN(salary)
 FROM employees
 GROUP BY department_id

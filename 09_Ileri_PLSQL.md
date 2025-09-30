@@ -2,24 +2,35 @@
 
 ## 1. Collections (Koleksiyonlar)
 
-Collections, PL/SQL'de birden fazla değeri tek bir değişkende saklamaya yarayan veri yapılarıdır.
+**Ne İşe Yarar:** Collections, PL/SQL'de birden fazla değeri tek bir değişkende saklamaya yarayan veri yapılarıdır. Java'daki Array, List veya Map yapılarına benzer.
+
+**Üç Tür Collection Var:**
+
+1. **Associative Arrays** - Index'li arrays (en esnek)
+2. **Nested Tables** - Dinamik arrays (sınırsız boyut)
+3. **VARRAYs** - Sabit boyutlu arrays (sınırlı boyut)
 
 ### Associative Arrays (Index-by Tables)
 
+**Ne İşe Yarar:** Dizi benzeri yapı ama index'ler sıralı olmak zorunda değil. String veya sayı ile index'lenebilir.
+**Avantajı:** Dinamik boyut, initialize etmek gerekmez, key-value yapısı gibi kullanılabilir.
+
 ```sql
 DECLARE
+    -- Sayı ile index'li array tanımlama
     TYPE emp_name_array IS TABLE OF employees.first_name%TYPE INDEX BY BINARY_INTEGER;
+    -- String ile index'li array tanımlama (key-value yapısı gibi)
     TYPE salary_array IS TABLE OF NUMBER INDEX BY VARCHAR2(50);
 
     emp_names emp_name_array;
     dept_salaries salary_array;
 BEGIN
-    -- Index ile atama
+    -- Index ile atama (sıralı olmak zorunda değil)
     emp_names(1) := 'John';
     emp_names(2) := 'Jane';
-    emp_names(100) := 'Bob';
+    emp_names(100) := 'Bob';  -- 3, 4, 5... atlanabilir
 
-    -- String index kullanımı
+    -- String index kullanımı (key-value gibi)
     dept_salaries('IT') := 75000;
     dept_salaries('HR') := 65000;
     dept_salaries('Finance') := 80000;
