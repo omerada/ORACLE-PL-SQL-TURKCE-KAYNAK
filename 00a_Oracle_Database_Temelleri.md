@@ -47,12 +47,37 @@ Oracle Instance - Hafıza ve Süreç Yapısı
 
 ```sql
 -- Database files görüntüleme
--- Veri dosyalarını ve boyutlarını göster (MB cinsinden)
-SELECT name, bytes/1024/1024 as size_mb FROM v$datafile;
--- Redo log dosyalarını göster
-SELECT member FROM v$logfile;
--- Kontrol dosyalarını göster
-SELECT name FROM v$controlfile;
+-- V$DATAFILE: Veri dosyalarının bilgilerini içeren view
+-- NAME: Dosya yolu, BYTES: Dosya boyutu (byte cinsinden)
+SELECT
+    name,                        -- Veri dosyasının tam yolu
+    bytes/1024/1024 as size_mb,  -- Boyutu MB cinsinden
+    status,                      -- Dosya durumu (ONLINE, OFFLINE)
+    enabled                      -- Dosya etkin mi?
+FROM v$datafile;
+
+-- V$LOGFILE: Redo log dosyalarının bilgileri
+-- MEMBER: Log dosya yolu, GROUP#: Log grubu numarası
+SELECT
+    group#,                      -- Redo log grup numarası
+    member,                      -- Log dosyasının tam yolu
+    status                       -- Dosya durumu
+FROM v$logfile
+ORDER BY group#;
+
+-- V$CONTROLFILE: Kontrol dosyalarının bilgileri
+-- Kontrol dosyaları veritabanının metadata'larını saklar
+SELECT
+    name,                        -- Kontrol dosyasının tam yolu
+    status                       -- Dosya durumu
+FROM v$controlfile;
+
+-- Temp dosyaları bilgileri
+SELECT
+    name,                        -- Temp dosya yolu
+    bytes/1024/1024 as size_mb,  -- Boyut MB cinsinden
+    status                       -- Dosya durumu
+FROM v$tempfile;
 ```
 
 ## 3. Logical Database Structure
@@ -63,50 +88,62 @@ Veritabanının logical storage unit'i:
 
 ```sql
 -- Tablespace oluşturma
+-- CREATE TABLESPACE: Yeni bir logical storage alanı oluşturur
+-- DATAFILE: Fiziksel dosya yolunu belirtir
+-- SIZE: Başlangıç boyutu
+-- AUTOEXTEND ON: Otomatik büyüme özelliği
+-- NEXT: Her seferinde ne kadar büyüyeceği
+-- MAXSIZE: Maksimum boyut sınırı
 CREATE TABLESPACE app_data
 DATAFILE '/u01/app/oracle/oradata/ORCL/app_data01.dbf'
-SIZE 100M
-AUTOEXTEND ON NEXT 10M
-MAXSIZE 1G;
+SIZE 100M                    -- Başlangıçta 100 MB
+AUTOEXTEND ON NEXT 10M       -- Dolduğunda 10 MB artır
+MAXSIZE 1G;                  -- En fazla 1 GB olabilir
 
--- Tablespace bilgileri
-SELECT tablespace_name, bytes/1024/1024 as size_mb, status
-FROM dba_data_files;
+-- Tablespace'e ek datafile ekleme
+ALTER TABLESPACE app_data
+ADD DATAFILE '/u01/app/oracle/oradata/ORCL/app_data02.dbf'
+SIZE 200M AUTOEXTEND ON;
 
--- Tablespace kullanımı
+-- DBA_DATA_FILES: Tüm veri dosyalarının bilgilerini içerir
+-- TABLESPACE_NAME: Tablespace adı, BYTES: Dosya boyutu
 SELECT
-    tablespace_name,
-    total_mb,
-    used_mb,
-    free_mb,
-    ROUND((used_mb/total_mb)*100, 2) as used_percent
+    tablespace_name,             -- Tablespace adı
+    file_name,                   -- Dosya tam yolu
+    bytes/1024/1024 as size_mb,  -- Dosya boyutu MB
+    status,                      -- Dosya durumu (AVAILABLE, INVALID)
+    autoextensible               -- Otomatik genişletme var mı?
+FROM dba_data_files
+ORDER BY tablespace_name;
+
+-- Tablespace kullanım analizi - karşılaştırmalı rapor
+-- Bu sorgu her tablespace'in toplam, kullanılan ve boş alanını gösterir
+SELECT
+    t.tablespace_name,
+    t.total_mb,                  -- Toplam alan
+    f.free_mb,                   -- Boş alan
+    t.total_mb - f.free_mb as used_mb,  -- Kullanılan alan
+    ROUND(((t.total_mb - f.free_mb)/t.total_mb)*100, 2) as used_percent
 FROM (
-    SELECT
-        tablespace_name,
-        SUM(bytes)/1024/1024 as total_mb
+    -- Toplam alan hesaplama
+    SELECT tablespace_name, SUM(bytes)/1024/1024 as total_mb
     FROM dba_data_files
     GROUP BY tablespace_name
-) t1
+) t
 JOIN (
-    SELECT
-        tablespace_name,
-        SUM(bytes)/1024/1024 as free_mb
+    -- Boş alan hesaplama (DBA_FREE_SPACE: Boş alanları gösterir)
+    SELECT tablespace_name, SUM(bytes)/1024/1024 as free_mb
     FROM dba_free_space
     GROUP BY tablespace_name
-) t2 USING (tablespace_name),
-(
-    SELECT
-        tablespace_name,
-        total_mb - free_mb as used_mb
-    FROM (
-        SELECT tablespace_name, SUM(bytes)/1024/1024 as total_mb
-        FROM dba_data_files GROUP BY tablespace_name
-    ) t1
-    JOIN (
-        SELECT tablespace_name, SUM(bytes)/1024/1024 as free_mb
-        FROM dba_free_space GROUP BY tablespace_name
-    ) t2 USING (tablespace_name)
-) t3 USING (tablespace_name);
+) f ON t.tablespace_name = f.tablespace_name
+ORDER BY used_percent DESC;
+
+-- Tablespace offline/online yapma
+ALTER TABLESPACE app_data OFFLINE;  -- Bakım için offline yap
+ALTER TABLESPACE app_data ONLINE;   -- Tekrar online yap
+
+-- Tablespace silme (DIİKKAT: Veriyi siler!)
+DROP TABLESPACE app_data INCLUDING CONTENTS AND DATAFILES;
 ```
 
 ### Schema
@@ -115,20 +152,57 @@ Bir kullanıcıya ait olan database object'lerin koleksiyonu:
 
 ```sql
 -- Schema (user) oluşturma
+-- CREATE USER: Yeni veritabanı kullanıcısı oluşturur
+-- IDENTIFIED BY: Şifre belirler
+-- DEFAULT TABLESPACE: Varsayılan tablespace (kullanıcının nesneleri burada saklanır)
+-- TEMPORARY TABLESPACE: Geçici işlemler için tablespace
+-- QUOTA: Belirtilen tablespace'de ne kadar alan kullanabileceği
 CREATE USER hr_user
-IDENTIFIED BY password123
-DEFAULT TABLESPACE app_data
-TEMPORARY TABLESPACE temp
-QUOTA 100M ON app_data;
+IDENTIFIED BY password123      -- Kullanıcı şifresi
+DEFAULT TABLESPACE app_data    -- Varsayılan tablespace
+TEMPORARY TABLESPACE temp      -- Geçici işlemler için
+QUOTA 100M ON app_data;        -- app_data'da 100MB kullanabilir
 
--- Yetki verme
+-- Ek tablespace quota'ları verme
+ALTER USER hr_user QUOTA 50M ON users;
+ALTER USER hr_user QUOTA UNLIMITED ON app_data;  -- Sınırsız alan
+
+-- Yetki verme (System Privileges)
+-- CONNECT: Veritabanına bağlanma yetkisi
+-- RESOURCE: Tablo, index vb. nesneler oluşturma yetkisi
+-- CREATE VIEW: View oluşturma yetkisi
+-- CREATE PROCEDURE: Stored procedure oluşturma yetkisi
 GRANT CONNECT, RESOURCE TO hr_user;
 GRANT CREATE VIEW, CREATE PROCEDURE TO hr_user;
+GRANT CREATE SEQUENCE, CREATE TRIGGER TO hr_user;
 
--- Schema bilgileri
-SELECT username, default_tablespace, temporary_tablespace, created
+-- Object privileges (belirli nesneler üzerinde yetkiler)
+GRANT SELECT, INSERT, UPDATE ON employees TO hr_user;
+GRANT ALL ON departments TO hr_user;  -- Tüm yetkiler
+
+-- DBA_USERS: Tüm kullanıcıların bilgilerini gösterir
+SELECT
+    username,                    -- Kullanıcı adı
+    default_tablespace,          -- Varsayılan tablespace
+    temporary_tablespace,        -- Geçici tablespace
+    created,                     -- Oluşturulma tarihi
+    account_status,              -- Hesap durumu (OPEN, LOCKED, EXPIRED)
+    profile,                     -- Güvenlik profili
+    authentication_type          -- Kimlik doğrulama tipi
 FROM dba_users
 WHERE username = 'HR_USER';
+
+-- Kullanıcı quota'larını görme
+SELECT
+    username,
+    tablespace_name,
+    bytes/1024/1024 as used_mb,  -- Kullanılan alan
+    max_bytes/1024/1024 as quota_mb  -- Verilen quota (-1 = UNLIMITED)
+FROM dba_ts_quotas
+WHERE username = 'HR_USER';
+
+-- Kullanıcı silme
+DROP USER hr_user CASCADE;       -- CASCADE: Kullanıcının nesnelerini de siler
 ```
 
 ## 4. Oracle Data Types
@@ -197,17 +271,37 @@ CREATE TABLE lob_demo (
 ### Primary Key
 
 ```sql
+-- Tablo oluştururken Primary Key tanımlama
+-- PRIMARY KEY: Her satırı benzersiz tanımlayan birincil anahtar
+-- Otomatik olarak UNIQUE ve NOT NULL constraint'i de ekler
+-- Otomatik olarak bir UNIQUE INDEX oluşturur
 CREATE TABLE departments (
-    dept_id NUMBER PRIMARY KEY,
+    dept_id NUMBER PRIMARY KEY,  -- Inline tanımlama
     dept_name VARCHAR2(50) NOT NULL
 );
 
--- Alternative syntax
+-- İsimlendirilmiş constraint ile tanımlama (tercih edilen yöntem)
 CREATE TABLE employees (
     emp_id NUMBER,
     first_name VARCHAR2(50),
+    -- CONSTRAINT: Constraint'e isim verir (hata mesajlarında kullanılır)
     CONSTRAINT pk_emp PRIMARY KEY (emp_id)
 );
+
+-- Composite Primary Key (birden fazla sütunlu)
+CREATE TABLE order_items (
+    order_id NUMBER,
+    item_id NUMBER,
+    quantity NUMBER,
+    CONSTRAINT pk_order_items PRIMARY KEY (order_id, item_id)
+);
+
+-- Mevcut tabloya Primary Key ekleme
+ALTER TABLE employees
+ADD CONSTRAINT pk_emp PRIMARY KEY (emp_id);
+
+-- Primary Key constraint'ini silme
+ALTER TABLE employees DROP CONSTRAINT pk_emp;
 ```
 
 ### Foreign Key
@@ -256,18 +350,59 @@ CREATE TABLE employees (
 
 ```sql
 -- Single column index
+-- CREATE INDEX: Sorgu performansını artırmak için index oluşturur
+-- B-Tree: Oracle'da varsayılan index tipi (dengeli ağaç yapısı)
 CREATE INDEX idx_emp_lastname ON employees(last_name);
 
--- Composite index
+-- Composite index (birden fazla sütunlu)
+-- Sütun sırası önemli: en seçici sütun başta olmalı
 CREATE INDEX idx_emp_dept_sal ON employees(department_id, salary);
 
--- Unique index
+-- Unique index (benzersiz değerler için)
+-- Aynı zamanda UNIQUE constraint sağlar
 CREATE UNIQUE INDEX idx_emp_email ON employees(email);
 
--- Index bilgileri
-SELECT index_name, table_name, uniqueness, status
+-- Descending index (azalan sıralama için optimize)
+CREATE INDEX idx_emp_sal_desc ON employees(salary DESC);
+
+-- Index bilgilerini görüntüleme
+-- USER_INDEXES: Kullanıcının sahip olduğu index'ler
+SELECT
+    index_name,                  -- Index adı
+    table_name,                  -- Hangi tabloya ait
+    uniqueness,                  -- UNIQUE mi NONUNIQUE mi
+    status,                      -- Durumu (VALID, INVALID)
+    degree,                      -- Parallellik derecesi
+    last_analyzed                -- Son analiz tarihi
 FROM user_indexes
 WHERE table_name = 'EMPLOYEES';
+
+-- Index sütunlarını görme
+-- USER_IND_COLUMNS: Index'lerin hangi sütunları içerdiği
+SELECT
+    index_name,
+    column_name,
+    column_position,             -- Index içindeki sırası
+    descend                      -- ASC mi DESC mi
+FROM user_ind_columns
+WHERE table_name = 'EMPLOYEES'
+ORDER BY index_name, column_position;
+
+-- Index kullanım istatistikleri (11g+)
+SELECT
+    name,                        -- Index adı
+    total_access_count,          -- Toplam erişim sayısı
+    total_exec_count,            -- Toplam çalıştırma sayısı
+    bucket_0_access_count        -- Hiç kullanılmama sayısı
+FROM v$index_usage_info
+WHERE name LIKE 'IDX_EMP%';
+
+-- Index yeniden oluşturma (fragmentation temizliği)
+ALTER INDEX idx_emp_lastname REBUILD;
+ALTER INDEX idx_emp_lastname REBUILD ONLINE;  -- Sistem çalışırken
+
+-- Index silme
+DROP INDEX idx_emp_lastname;
 ```
 
 ### Bitmap Index
@@ -435,22 +570,74 @@ expdp hr/password directory=dp_dir dumpfile=emp_backup.dmp tables=employees
 
 ```sql
 -- AWR snapshot oluşturma
+-- AWR: Oracle'da performans izleme sistemi
+-- Snapshot: Belirli bir andaki sistem durumunun fotografı
+-- Manuel snapshot oluşturma (normalde otomatik alınır)
 EXEC DBMS_WORKLOAD_REPOSITORY.CREATE_SNAPSHOT();
 
--- AWR report oluşturma
+-- AWR snapshot'larını listeleme
+SELECT
+    snap_id,                     -- Snapshot ID'si
+    begin_interval_time,         -- Başlangıç zamanı
+    end_interval_time,           -- Bitiş zamanı
+    snap_level                   -- Snapshot seviyesi (detayı)
+FROM dba_hist_snapshot
+WHERE begin_interval_time >= SYSDATE - 1  -- Son 24 saat
+ORDER BY snap_id DESC;
+
+-- AWR report oluşturma (SQL*Plus'da çalıştır)
 @$ORACLE_HOME/rdbms/admin/awrrpt.sql
 
--- Top SQL queries
-SELECT sql_id, executions, avg_etime, sql_text
+-- En yük CPU tüketen SQL'leri bulma
+-- V$SQL: Şu anda SGA'da bulunan SQL ifadeleri
+-- ELAPSED_TIME: Toplam geçen süre (mikrosaniye)
+-- EXECUTIONS: Çalıştırma sayısı
+SELECT
+    sql_id,                      -- SQL'in benzersiz ID'si
+    executions,                  -- Kaç kez çalıştırıldı
+    elapsed_time/executions/1000000 as avg_etime_sec,  -- Ortalama süre (saniye)
+    cpu_time/1000000 as cpu_sec, -- CPU süresi (saniye)
+    buffer_gets,                 -- Buffer cache'den okunan blok sayısı
+    disk_reads,                  -- Diskten okunan blok sayısı
+    SUBSTR(sql_text, 1, 100) as sql_text  -- SQL metninin ilk 100 karakteri
 FROM (
-    SELECT sql_id, executions,
-           elapsed_time/executions/1000000 as avg_etime,
-           sql_text,
-           RANK() OVER (ORDER BY elapsed_time DESC) as rnk
+    SELECT
+        sql_id, executions, elapsed_time, cpu_time,
+        buffer_gets, disk_reads, sql_text,
+        RANK() OVER (ORDER BY elapsed_time DESC) as rnk
     FROM v$sql
-    WHERE executions > 0
+    WHERE executions > 0         -- En az bir kez çalıştırılmış
+    AND sql_text NOT LIKE 'SELECT%FROM V$%'  -- System query'leri hariç tut
 )
-WHERE rnk <= 10;
+WHERE rnk <= 10                 -- En yük 10 SQL
+ORDER BY elapsed_time DESC;
+
+-- Session bazlı performans analizi
+SELECT
+    s.sid,                       -- Session ID
+    s.serial#,                   -- Session Serial #
+    s.username,                  -- Kullanıcı adı
+    s.program,                   -- Çalıştıran program
+    s.machine,                   -- Client makinesi
+    s.status,                    -- Session durumu (ACTIVE, INACTIVE)
+    s.last_call_et,              -- Son çağrıdan beri geçen süre
+    sq.sql_text                  -- Şu an çalışan SQL
+FROM v$session s
+LEFT JOIN v$sql sq ON s.sql_id = sq.sql_id
+WHERE s.username IS NOT NULL    -- Background process'leri hariç tut
+AND s.status = 'ACTIVE'         -- Sadece aktif session'lar
+ORDER BY s.last_call_et;
+
+-- Wait events analizi (neyin beklendiğini görür)
+SELECT
+    event,                       -- Bekleme event'i
+    total_waits,                 -- Toplam bekleme sayısı
+    total_timeouts,              -- Timeout sayısı
+    time_waited/100 as time_waited_sec,  -- Toplam bekleme süresi
+    average_wait/100 as avg_wait_sec     -- Ortalama bekleme süresi
+FROM v$system_event
+WHERE wait_class != 'Idle'      -- Idle event'leri hariç tut
+ORDER BY time_waited DESC;
 ```
 
 ### Execution Plans

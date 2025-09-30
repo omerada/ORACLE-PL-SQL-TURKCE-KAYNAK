@@ -133,46 +133,144 @@ HAVING COUNT(*) > 5;
 
 ## 3. JOIN İşlemleri
 
+**JOIN Nedir:** İki veya daha fazla tabloyu bağlantılı sütunlar üzerinden birleştirmek için kullanılır.
+
 ### INNER JOIN
 
+**Ne İşe Yarar:** Sadece her iki tabloda eşleşen kayıtları getirir. En çok kullanılan JOIN tipi.
+
 ```sql
-SELECT e.first_name, e.last_name, d.department_name
-FROM employees e
-INNER JOIN departments d ON e.department_id = d.department_id;
+-- Çalışan ve departman bilgisini birleştir
+-- Sadece departmanı olan çalışanlar gelir
+SELECT
+    e.employee_id,              -- Çalışan ID'si
+    e.first_name,               -- Çalışan adı
+    e.last_name,                -- Çalışan soyadı
+    e.salary,                   -- Maaş
+    d.department_name,          -- Departman adı
+    d.location_id               -- Departman lokasyonu
+FROM employees e               -- Ana tablo (alias: e)
+INNER JOIN departments d       -- Birleştirilecek tablo (alias: d)
+    ON e.department_id = d.department_id  -- Bağlantı koşulu
+WHERE e.salary > 5000          -- Ek filtre
+ORDER BY e.salary DESC;
 ```
 
-### LEFT JOIN
+### LEFT JOIN (LEFT OUTER JOIN)
+
+**Ne İşe Yarar:** Sol tablodaki tüm kayıtları getirir, sağ tabloda eşleşme yoksa NULL değerler gösterir.
 
 ```sql
-SELECT e.first_name, e.last_name, d.department_name
+-- Tüm çalışanları getir, departmanı olmasa bile
+-- Departmanı olmayan çalışanlar için department_name NULL olur
+SELECT
+    e.first_name,
+    e.last_name,
+    e.salary,
+    d.department_name,
+    CASE
+        WHEN d.department_name IS NULL THEN 'Departman Atanmamış'
+        ELSE d.department_name
+    END as dept_status
 FROM employees e
-LEFT JOIN departments d ON e.department_id = d.department_id;
+LEFT JOIN departments d
+    ON e.department_id = d.department_id
+ORDER BY d.department_name NULLS LAST;  -- NULL'lar en sona
 ```
 
-### RIGHT JOIN
+### RIGHT JOIN (RIGHT OUTER JOIN)
+
+**Ne İşe Yarar:** Sağ tablodaki tüm kayıtları getirir, sol tabloda eşleşme yoksa NULL değerler gösterir.
 
 ```sql
-SELECT e.first_name, e.last_name, d.department_name
+-- Tüm departmanları getir, çalışanı olmasa bile
+-- Boş departmanlar için employee bilgileri NULL olur
+SELECT
+    e.first_name,
+    e.last_name,
+    e.salary,
+    d.department_name,
+    d.department_id
 FROM employees e
-RIGHT JOIN departments d ON e.department_id = d.department_id;
+RIGHT JOIN departments d
+    ON e.department_id = d.department_id
+ORDER BY d.department_name;
 ```
 
 ### FULL OUTER JOIN
 
+**Ne İşe Yarar:** Her iki tablodaki tüm kayıtları getirir, eşleşme olmayan yerler NULL olur.
+
 ```sql
-SELECT e.first_name, e.last_name, d.department_name
+-- Hem çalışanı olmayan departmanları, hem departmanı olmayan çalışanları göster
+SELECT
+    e.employee_id,
+    e.first_name,
+    e.last_name,
+    d.department_name,
+    d.department_id,
+    CASE
+        WHEN e.employee_id IS NULL THEN 'Boş Departman'
+        WHEN d.department_id IS NULL THEN 'Departmansız Çalışan'
+        ELSE 'Normal Kayıt'
+    END as record_type
 FROM employees e
-FULL OUTER JOIN departments d ON e.department_id = d.department_id;
+FULL OUTER JOIN departments d
+    ON e.department_id = d.department_id
+ORDER BY record_type, d.department_name;
 ```
 
 ### SELF JOIN
 
+**Ne İşe Yarar:** Aynı tabloyu kendisiyle birleştirir. Genelde hiyerarşik veriler için kullanılır.
+
 ```sql
--- Çalışan ve yöneticisi
-SELECT e.first_name || ' ' || e.last_name as employee,
-       m.first_name || ' ' || m.last_name as manager
+-- Çalışan ve yöneticisi ilişkisi
+-- Her çalışanın manager_id'si başka bir çalışanın employee_id'sine eşit
+SELECT
+    e.employee_id as emp_id,
+    e.first_name || ' ' || e.last_name as employee_name,
+    e.salary as emp_salary,
+    m.employee_id as mgr_id,
+    m.first_name || ' ' || m.last_name as manager_name,
+    m.salary as mgr_salary,
+    (m.salary - e.salary) as salary_diff
+FROM employees e                    -- Çalışan tablosu
+LEFT JOIN employees m               -- Yönetici tablosu (aynı tablo)
+    ON e.manager_id = m.employee_id -- Bağlantı: Çalışanın yöneticisi
+WHERE e.employee_id != m.employee_id OR m.employee_id IS NULL  -- Kendini yönetmeyenler
+ORDER BY m.last_name, e.last_name;
+
+-- İki seviye hiyerarşi
+SELECT
+    e.first_name as employee,
+    m.first_name as manager,
+    gm.first_name as grand_manager
 FROM employees e
-LEFT JOIN employees m ON e.manager_id = m.employee_id;
+LEFT JOIN employees m ON e.manager_id = m.employee_id
+LEFT JOIN employees gm ON m.manager_id = gm.employee_id;
+```
+
+### Multiple Table JOIN
+
+```sql
+-- Üç veya daha fazla tablo birleştirme
+SELECT
+    e.first_name,
+    e.last_name,
+    e.salary,
+    d.department_name,
+    l.city,
+    l.country_id,
+    c.country_name,
+    j.job_title
+FROM employees e
+JOIN departments d ON e.department_id = d.department_id
+JOIN locations l ON d.location_id = l.location_id
+JOIN countries c ON l.country_id = c.country_id
+JOIN jobs j ON e.job_id = j.job_id
+WHERE e.salary > 10000
+ORDER BY c.country_name, l.city, d.department_name;
 ```
 
 ## 4. Alt Sorgular (Subqueries)
@@ -226,13 +324,47 @@ WHERE EXISTS (
 
 ```sql
 SELECT
+    -- UPPER: Metni büyük harfe çevirir (Ali -> ALİ)
     UPPER(first_name) as upper_name,
+    -- LOWER: Metni küçük harfe çevirir (VELİ -> veli)
     LOWER(last_name) as lower_name,
+    -- INITCAP: Her kelimenin ilk harfini büyük yapar (ali veli -> Ali Veli)
     INITCAP(first_name || ' ' || last_name) as full_name,
+    -- LENGTH: Metin uzunluğunu döner (karakter sayısı)
     LENGTH(first_name) as name_length,
+    -- SUBSTR: Metinden belirli kısmı alır (başlangıç pozisyonu, uzunluk)
+    -- INSTR: Bir karakterin metindeki pozisyonunu bulur
     SUBSTR(email, 1, INSTR(email, '@') - 1) as username,
+    -- REPLACE: Metindeki karakteri başka karakterle değiştirir
     REPLACE(phone, '-', '.') as formatted_phone,
-    TRIM(first_name) as trimmed_name
+    -- TRIM: Başındaki ve sonundaki boşlukları temizler
+    TRIM(first_name) as trimmed_name,
+    -- LPAD: Soldan belirli karakterle doldurur (toplam uzunluk, dolgu karakteri)
+    LPAD(employee_id, 6, '0') as padded_id,
+    -- RPAD: Sağdan belirli karakterle doldurur
+    RPAD(first_name, 20, '.') as right_padded,
+    -- LTRIM: Soldaki belirtilen karakterleri siler
+    LTRIM(phone, '0') as phone_without_leading_zero,
+    -- RTRIM: Sağdaki belirtilen karakterleri siler
+    RTRIM(email, '.com') as email_without_domain
+FROM employees;
+```
+
+**Yaygın String Operasyonları:**
+
+```sql
+-- Concatenation (Birleştirme)
+SELECT
+    first_name || ' ' || last_name as full_name,
+    CONCAT(CONCAT(first_name, ' '), last_name) as full_name_concat
+FROM employees;
+
+-- Pattern matching
+SELECT * FROM employees
+WHERE REGEXP_LIKE(email, '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$');
+
+-- String replacement with regex
+SELECT REGEXP_REPLACE(phone, '[^0-9]', '') as clean_phone
 FROM employees;
 ```
 
@@ -240,51 +372,168 @@ FROM employees;
 
 ```sql
 SELECT
+    salary,
+    -- ROUND: Sayıyı yuvarlar (5432.67 -> 5400 when -2)
     ROUND(salary, -2) as rounded_salary,
+    -- TRUNC: Sayıyı keser, yuvarlamaz (5432.67 -> 5000 when -3)
     TRUNC(salary, -3) as truncated_salary,
+    -- CEIL: Yukarı yuvarlar (5.1 -> 6)
     CEIL(salary/1000) as ceiling_thousands,
+    -- FLOOR: Aşağı yuvarlar (5.9 -> 5)
     FLOOR(salary/1000) as floor_thousands,
-    MOD(employee_id, 2) as even_odd,
-    ABS(salary - 5000) as salary_diff
+    -- MOD: Bölme işleminden kalanı döner (10 MOD 3 = 1)
+    MOD(employee_id, 2) as even_odd,  -- 0=çift, 1=tek
+    -- ABS: Mutlak değer döner (negatif sayıları pozitif yapar)
+    ABS(salary - 5000) as salary_diff,
+    -- POWER: Üs alma (2^3 = 8)
+    POWER(2, 3) as power_example,
+    -- SQRT: Karekök alma
+    SQRT(25) as square_root,
+    -- SIGN: Sayının işaretini döner (-1, 0, 1)
+    SIGN(salary - 5000) as salary_sign
 FROM employees;
+
+-- Mathematical constants and functions
+SELECT
+    -- PI sayısı
+    ACOS(-1) as pi_value,
+    -- Trigonometric functions
+    SIN(ACOS(-1)/2) as sin_90_degrees,  -- sin(π/2) = 1
+    COS(0) as cos_0_degrees,            -- cos(0) = 1
+    -- Logarithmic functions
+    LN(2.71828) as natural_log,         -- doğal logaritma
+    LOG(10, 100) as log_base_10         -- 10 tabanında logaritma
+FROM dual;
 ```
 
 ### Date Fonksiyonları
 
 ```sql
 SELECT
+    -- SYSDATE: Sistemin şu anki tarih ve saatini döner
     SYSDATE as current_date,
+    -- ADD_MONTHS: Tarihe ay ekler (negatif değerle çıkarır)
     ADD_MONTHS(hire_date, 12) as anniversary,
+    -- MONTHS_BETWEEN: İki tarih arasındaki ay farkını hesaplar
     MONTHS_BETWEEN(SYSDATE, hire_date) as months_worked,
+    -- EXTRACT: Tarihten belirli bileşeni çıkarır (YEAR, MONTH, DAY)
     EXTRACT(YEAR FROM hire_date) as hire_year,
+    EXTRACT(MONTH FROM hire_date) as hire_month,
+    EXTRACT(DAY FROM hire_date) as hire_day,
+    -- TO_CHAR: Tarihi belirli formatta string'e çevirir
     TO_CHAR(hire_date, 'DD/MM/YYYY') as formatted_date,
-    TRUNC(hire_date, 'MONTH') as month_start,
-    LAST_DAY(hire_date) as month_end
+    TO_CHAR(hire_date, 'DAY, DD MONTH YYYY') as long_format,
+    -- TRUNC: Tarihi belirli seviyeye yuvarlar
+    TRUNC(hire_date, 'MONTH') as month_start,  -- Ayın ilk günü
+    TRUNC(hire_date, 'YEAR') as year_start,    -- Yılın ilk günü
+    -- LAST_DAY: Ayın son gününü döner
+    LAST_DAY(hire_date) as month_end,
+    -- NEXT_DAY: Belirtilen günün bir sonraki oluşumunu bulur
+    NEXT_DAY(hire_date, 'MONDAY') as next_monday,
+    -- Tarih aritmetiği
+    hire_date + 30 as thirty_days_later,
+    hire_date - 7 as week_before
 FROM employees;
+
+-- Tarih formatları
+SELECT
+    TO_CHAR(SYSDATE, 'DD/MM/YYYY HH24:MI:SS') as date_time,
+    TO_CHAR(SYSDATE, 'Day, DD Month YYYY') as readable_date,
+    TO_CHAR(SYSDATE, 'Q') as quarter,          -- Çeyrek (1-4)
+    TO_CHAR(SYSDATE, 'WW') as week_of_year,    -- Yılın kaçıncı haftası
+    TO_CHAR(SYSDATE, 'DDD') as day_of_year     -- Yılın kaçıncı günü
+FROM dual;
+
+-- String'den tarihe çevirme
+SELECT
+    TO_DATE('15/01/2024', 'DD/MM/YYYY') as parsed_date,
+    TO_DATE('2024-01-15 14:30:00', 'YYYY-MM-DD HH24:MI:SS') as parsed_datetime
+FROM dual;
 ```
 
 ### Conditional Fonksiyonları
 
 ```sql
 SELECT
+    employee_id,
     first_name,
     salary,
+
+    -- CASE: Çoklu koşul kontrolü (if-else if-else yapısı gibi)
     CASE
-        WHEN salary > 10000 THEN 'High'
-        WHEN salary > 5000 THEN 'Medium'
-        ELSE 'Low'
+        WHEN salary > 15000 THEN 'Senior Level'     -- Eğer maaş > 15000
+        WHEN salary > 10000 THEN 'Mid Level'        -- Değilse eğer > 10000
+        WHEN salary > 5000 THEN 'Junior Level'      -- Değilse eğer > 5000
+        ELSE 'Entry Level'                          -- Hiçbiri değilse
     END as salary_grade,
 
-    DECODE(department_id,
-           10, 'Finance',
-           20, 'Marketing',
-           30, 'IT',
-           'Other') as dept_name,
+    -- CASE (Simple form): Belirli değerlere göre karşılaştırma
+    CASE department_id
+        WHEN 10 THEN 'Finans'                      -- department_id = 10 ise
+        WHEN 20 THEN 'Pazarlama'                    -- department_id = 20 ise
+        WHEN 30 THEN 'IT'                          -- department_id = 30 ise
+        ELSE 'Diğer Departman'                     -- Hiçbiri değilse
+    END as dept_name_tr,
 
-    NVL(commission_pct, 0) as commission,
-    NVL2(commission_pct, 'Has Commission', 'No Commission') as comm_status,
-    COALESCE(commission_pct, bonus_pct, 0) as incentive
-FROM employees;
+    -- DECODE: Oracle'a özgü, CASE'in kısa hali
+    -- DECODE(kontrol_edilen_değer, değer1, sonuç1, değer2, sonuç2, ..., varsayılan)
+    DECODE(department_id,
+           10, 'Finance',               -- 10 ise Finance
+           20, 'Marketing',             -- 20 ise Marketing
+           30, 'IT',                    -- 30 ise IT
+           'Other') as dept_name,       -- Hiçbiri değilse Other
+
+    -- Gender decode örneği
+    DECODE(SUBSTR(first_name, -1, 1),
+           'a', 'Female',               -- İsim 'a' ile bitiyorsa kadın
+           'e', 'Female',               -- İsim 'e' ile bitiyorsa kadın
+           'Male') as estimated_gender, -- Diğer durumlarda erkek
+
+    -- NVL: NULL değerleri değiştir (null ise ikinci değeri kullan)
+    NVL(commission_pct, 0) as commission,  -- NULL ise 0 yap
+    NVL(phone_number, 'Telefon Yok') as phone_display,
+
+    -- NVL2: NULL olup olmamasına göre farklı değerler döner
+    -- NVL2(kontrol_değeri, NULL_değilse_bu, NULL_ise_bu)
+    NVL2(commission_pct, 'Komisyon Var', 'Komisyon Yok') as comm_status,
+    NVL2(manager_id, 'Has Manager', 'Top Level') as manager_status,
+
+    -- COALESCE: Birden fazla değerden ilk NULL olmayanı döner
+    COALESCE(commission_pct, bonus_pct, 0) as incentive,  -- İlk NULL olmayanı al
+    COALESCE(email, phone_number, 'No Contact') as primary_contact,
+
+    -- NULLIF: İki değer eşitse NULL, değilse ilki döner
+    NULLIF(salary, 0) as salary_check,    -- Maaş 0 ise NULL yap
+    NULLIF(department_id, 999) as valid_dept_id,  -- 999 ise NULL yap
+
+    -- GREATEST ve LEAST: En büyük ve en küçük değer
+    GREATEST(salary, commission_pct * 100, 1000) as max_value,
+    LEAST(salary, 50000) as capped_salary,  -- Maaş 50000'i geçmesin
+
+    -- Karmaşık CASE örneği
+    CASE
+        WHEN salary IS NULL THEN 'Maaş Belirsiz'
+        WHEN salary = 0 THEN 'Maaşsız'
+        WHEN MOD(salary, 1000) = 0 THEN 'Yuvarlanmış Maaş'
+        ELSE 'Normal Maaş'
+    END as salary_type
+FROM employees
+WHERE employee_id <= 110;  -- Sonuçları sınırla
+
+-- Conditional aggregate örneği
+SELECT
+    department_id,
+    COUNT(*) as total_employees,
+    -- Koşullu sayma
+    COUNT(CASE WHEN salary > 10000 THEN 1 END) as high_earners,
+    COUNT(CASE WHEN commission_pct IS NOT NULL THEN 1 END) as commissioned_emp,
+    -- Koşullu toplam
+    SUM(CASE WHEN salary > 10000 THEN salary ELSE 0 END) as high_earner_total,
+    -- Koşullu ortalama
+    AVG(CASE WHEN hire_date > DATE '2005-01-01' THEN salary END) as new_emp_avg_sal
+FROM employees
+GROUP BY department_id
+ORDER BY department_id;
 ```
 
 ## 6. Aggregate Fonksiyonları
@@ -498,21 +747,213 @@ SELECT emp_seq.NEXTVAL FROM DUAL; -- Sonraki değer
 
 ## SQL Best Practices
 
-1. **Performance**
+### 1. Performance
 
-   - SELECT \* yerine gerekli sütunları belirtin
-   - WHERE koşullarında index'li sütunları kullanın
-   - LIMIT/ROWNUM kullanarak büyük sonuçları sınırlayın
+- **SELECT \* yerine gerekli sütunları belirtin**
 
-2. **Readability**
+  ```sql
+  -- KÖTÜ: Tüm sütunları getir (yavaş, network trafiği fazla)
+  SELECT * FROM employees WHERE department_id = 10;
 
-   - Anlamlı alias'lar kullanın
-   - SQL'i düzgün formatlayın
-   - Karmaşık sorguları CTE ile basitleştirin
+  -- İYİ: Sadece gerekli sütunları getir
+  SELECT employee_id, first_name, last_name, salary
+  FROM employees WHERE department_id = 10;
+  ```
 
-3. **Security**
-   - Parameterized queries kullanın
-   - Least privilege principle'ı uygulayın
-   - Sensitive data'yı maskeleyeyin
+- **WHERE koşullarında index'li sütunları kullanın**
+
+  ```sql
+  -- İYİ: employee_id PRIMARY KEY olduğu için index var
+  SELECT * FROM employees WHERE employee_id = 100;
+
+  -- KÖTÜ: first_name genelde index'siz
+  SELECT * FROM employees WHERE UPPER(first_name) = 'JOHN';
+  ```
+
+- **LIMIT/ROWNUM kullanarak büyük sonuçları sınırlayın**
+
+  ```sql
+  -- Oracle: ROWNUM ile sınırlama
+  SELECT * FROM employees WHERE ROWNUM <= 10;
+
+  -- Oracle 12c+: FETCH FIRST ile sınırlama (modern yöntem)
+  SELECT * FROM employees ORDER BY salary DESC
+  FETCH FIRST 10 ROWS ONLY;
+  ```
+
+### 2. Readability (Okunabilirlik)
+
+- **Anlamlı alias'lar kullanın**
+
+  ```sql
+  SELECT
+      e.employee_id as emp_id,
+      e.first_name as name,
+      d.department_name as dept
+  FROM employees e
+  JOIN departments d ON e.department_id = d.department_id;
+  ```
+
+- **SQL'i düzgün formatlayın**
+
+  ```sql
+  -- İYİ: Okunabilir format
+  SELECT e.first_name,
+         e.last_name,
+         e.salary,
+         d.department_name
+  FROM employees e
+  JOIN departments d
+    ON e.department_id = d.department_id
+  WHERE e.salary > 5000
+  ORDER BY e.salary DESC;
+  ```
+
+- **Karmaşık sorguları CTE ile basitleştirin**
+  ```sql
+  WITH high_earners AS (
+      SELECT * FROM employees WHERE salary > 10000
+  ),
+  dept_summary AS (
+      SELECT department_id, AVG(salary) as avg_sal
+      FROM high_earners
+      GROUP BY department_id
+  )
+  SELECT he.first_name, he.salary, ds.avg_sal
+  FROM high_earners he
+  JOIN dept_summary ds ON he.department_id = ds.department_id;
+  ```
+
+### 3. Security
+
+- **Parameterized queries kullanın (SQL Injection korunması)**
+
+  ```sql
+  -- Java/C# gibi uygulamalarda:
+  -- PreparedStatement ps = connection.prepareStatement(
+  --     "SELECT * FROM employees WHERE employee_id = ?");
+  -- ps.setInt(1, employeeId);
+  ```
+
+- **Least privilege principle'ı uygulayın**
+
+  ```sql
+  -- Kullanıcıya sadece gerekli yetkileri verin
+  GRANT SELECT ON employees TO readonly_user;
+  GRANT SELECT, INSERT, UPDATE ON employees TO data_entry_user;
+  ```
+
+- **Sensitive data'yı maskeleyetin**
+  ```sql
+  -- Credit card numaralarını maskele
+  SELECT employee_id,
+         first_name,
+         '****-****-****-' || SUBSTR(credit_card, -4) as masked_card
+  FROM employee_sensitive_data;
+  ```
+
+### 4. Data Integrity (Veri Bütünlüğü)
+
+- **Constraints kullanın**
+
+  ```sql
+  CREATE TABLE employees (
+      employee_id NUMBER PRIMARY KEY,
+      email VARCHAR2(100) UNIQUE NOT NULL,
+      salary NUMBER CHECK (salary > 0),
+      hire_date DATE DEFAULT SYSDATE
+  );
+  ```
+
+- **Foreign Keys ile referential integrity sağlayın**
+  ```sql
+  ALTER TABLE employees
+  ADD CONSTRAINT fk_emp_dept
+  FOREIGN KEY (department_id) REFERENCES departments(department_id);
+  ```
+
+### 5. Common SQL Anti-Patterns (Kaçınılması Gerekenler)
+
+```sql
+-- KÖTÜ: IN clause'da çok fazla değer
+SELECT * FROM employees
+WHERE employee_id IN (1,2,3,4,5,...,1000);  -- Yavaş
+
+-- İYİ: Temporary table veya EXISTS kullan
+WITH temp_ids AS (
+    SELECT 1 as id FROM dual UNION ALL
+    SELECT 2 FROM dual UNION ALL
+    SELECT 3 FROM dual
+)
+SELECT e.* FROM employees e
+JOIN temp_ids t ON e.employee_id = t.id;
+
+-- KÖTÜ: SELECT DISTINCT sık kullanımı
+SELECT DISTINCT e.first_name, d.department_name
+FROM employees e, departments d;  -- Cartesian product
+
+-- İYİ: Proper JOIN kullan
+SELECT e.first_name, d.department_name
+FROM employees e
+JOIN departments d ON e.department_id = d.department_id;
+
+-- KÖTÜ: Fonksiyon WHERE clause'da
+SELECT * FROM employees
+WHERE UPPER(first_name) = 'JOHN';  -- Index kullanamaz
+
+-- İYİ: Veriyi önceden normalize et veya functional index oluştur
+CREATE INDEX idx_emp_upper_name ON employees(UPPER(first_name));
+SELECT * FROM employees WHERE UPPER(first_name) = 'JOHN';
+```
+
+## Helpful SQL Utilities
+
+### 1. Data Dictionary Views
+
+```sql
+-- Tablolar hakkında bilgi
+SELECT table_name, num_rows, last_analyzed
+FROM user_tables
+WHERE table_name LIKE 'EMP%';
+
+-- Sütun bilgileri
+SELECT column_name, data_type, nullable, default_value
+FROM user_tab_columns
+WHERE table_name = 'EMPLOYEES'
+ORDER BY column_id;
+
+-- Index bilgileri
+SELECT index_name, uniqueness, status
+FROM user_indexes
+WHERE table_name = 'EMPLOYEES';
+
+-- Constraint bilgileri
+SELECT constraint_name, constraint_type, status
+FROM user_constraints
+WHERE table_name = 'EMPLOYEES';
+```
+
+### 2. Explain Plan
+
+```sql
+-- Query execution plan'ı görmek için
+EXPLAIN PLAN FOR
+SELECT e.first_name, d.department_name
+FROM employees e
+JOIN departments d ON e.department_id = d.department_id
+WHERE e.salary > 5000;
+
+-- Plan'ı görüntüle
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);
+```
+
+### 3. SQL Trace
+
+```sql
+-- Session'ı trace et (performance analizi için)
+ALTER SESSION SET SQL_TRACE = TRUE;
+-- Sorguları çalıştır
+ALTER SESSION SET SQL_TRACE = FALSE;
+```
 
 **Sonraki Bölümde:** Oracle Database temel kavramlarını öğreneceğiz.
