@@ -545,6 +545,7 @@ Bu kapsamlı dökümantasyon aşağıdaki dosyalardan oluşmaktadır:
 - `03_Procedure_Function.md` - Modular programming
 - `04_Package_Cursor.md` - Advanced PL/SQL structures
 - `05_Trigger_Transaction.md` - Database triggers ve transactions
+- `08_Oracle_Modern_Features.md` - Modern özellikler
 - `09_Ileri_PLSQL.md` - Collections, dynamic SQL, object types
 - `10_Performance_Tuning.md` - Optimization techniques
 
