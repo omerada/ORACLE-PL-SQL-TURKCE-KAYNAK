@@ -559,7 +559,7 @@ Bu kapsamlı dökümantasyon aşağıdaki dosyalardan oluşmaktadır:
 
 ### **Summary:**
 
-- `08_Ozet_Yol_Haritasi.md` - Complete roadmap ve career guidance
+- `12_Ozet_Yol_Haritasi.md` - Complete roadmap ve career guidance
 
 Bu dökümantasyon seti, SQL bilmeyen birinin Oracle ecosystem'inde expert seviyeye ulaşması için gereken tüm konuları sistematik olarak kapsamaktadır. Her dosya bağımsız okunabileceği gibi, sıralı takip edildiğinde tam bir öğrenme yolculuğu sunar.
 
