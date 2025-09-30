@@ -101,6 +101,323 @@ WHERE table_name = 'EMPLOYEES'
 ORDER BY column_id;
 ```
 
+## 15. ANALİTİK VE REPORTING FONKSİYONLARI
+
+**Ne İşe Yarar:** Oracle'ın güçlü analitik fonksiyonları ile veri analizi ve raporlama işlemleri.
+
+### PIVOT ve UNPIVOT
+
+```sql
+-- PIVOT: Satırları sütunlara çevirir
+-- Departman bazında yıllık maaş dağılımı
+SELECT *
+FROM (
+    SELECT department_id,
+           TO_CHAR(hire_date, 'YYYY') as hire_year,
+           salary
+    FROM employees
+)
+PIVOT (
+    AVG(salary) as avg_sal,
+    COUNT(*) as emp_count
+    FOR hire_year IN ('2018', '2019', '2020', '2021', '2022')
+);
+
+-- UNPIVOT: Sütunları satırlara çevirir
+WITH pivot_data AS (
+    SELECT department_id, sal_2020, sal_2021, sal_2022
+    FROM yearly_salary_summary
+)
+SELECT department_id, year, salary
+FROM pivot_data
+UNPIVOT (
+    salary FOR year IN (sal_2020 as '2020', sal_2021 as '2021', sal_2022 as '2022')
+);
+```
+
+### ROLLUP, CUBE ve GROUPING SETS
+
+```sql
+-- ROLLUP: Hiyerarşik alt toplamlar
+-- Departman -> Job -> Toplam şeklinde gruplama
+SELECT
+    department_id,
+    job_id,
+    COUNT(*) as emp_count,
+    SUM(salary) as total_salary,
+    AVG(salary) as avg_salary,
+    GROUPING(department_id) as dept_grouping,
+    GROUPING(job_id) as job_grouping
+FROM employees
+GROUP BY ROLLUP(department_id, job_id)
+ORDER BY department_id, job_id;
+
+-- CUBE: Tüm kombinasyonları hesaplar
+SELECT
+    department_id,
+    job_id,
+    TO_CHAR(hire_date, 'YYYY') as hire_year,
+    COUNT(*) as emp_count,
+    SUM(salary) as total_salary
+FROM employees
+GROUP BY CUBE(department_id, job_id, TO_CHAR(hire_date, 'YYYY'))
+ORDER BY department_id, job_id, hire_year;
+
+-- GROUPING SETS: Belirli kombinasyonları seçer
+SELECT
+    department_id,
+    job_id,
+    manager_id,
+    COUNT(*) as emp_count,
+    SUM(salary) as total_salary
+FROM employees
+GROUP BY GROUPING SETS (
+    (department_id),          -- Sadece departman
+    (job_id),                 -- Sadece job
+    (department_id, job_id),  -- Departman ve job
+    ()                        -- Grand total
+);
+
+-- GROUPING fonksiyonu ile kontrol
+SELECT
+    CASE GROUPING(department_id)
+        WHEN 1 THEN 'TÜM DEPARTMANLAR'
+        ELSE TO_CHAR(department_id)
+    END as department,
+    CASE GROUPING(job_id)
+        WHEN 1 THEN 'TÜM JOB''LAR'
+        ELSE job_id
+    END as job,
+    COUNT(*) as emp_count,
+    SUM(salary) as total_salary
+FROM employees
+GROUP BY ROLLUP(department_id, job_id);
+```
+
+### REGEX Fonksiyonları
+
+```sql
+-- REGEXP_LIKE: Pattern'e uygun kayıtları bulur
+SELECT first_name, last_name, email
+FROM employees
+WHERE REGEXP_LIKE(email, '^[A-Z]+\.[A-Z]+@[A-Z]+\.[A-Z]{2,}$', 'i');
+
+-- REGEXP_SUBSTR: Pattern'e uygun kısmı çıkarır
+SELECT
+    email,
+    REGEXP_SUBSTR(email, '[^@]+') as username,
+    REGEXP_SUBSTR(email, '@(.+)', 1, 1, 'i', 1) as domain
+FROM employees;
+
+-- REGEXP_REPLACE: Pattern'i değiştirir
+SELECT
+    phone_number,
+    REGEXP_REPLACE(phone_number, '(\d{3})\.(\d{3})\.(\d{4})', '(\1) \2-\3') as formatted_phone
+FROM employees
+WHERE phone_number IS NOT NULL;
+
+-- REGEXP_INSTR: Pattern'in pozisyonunu bulur
+SELECT
+    first_name,
+    REGEXP_INSTR(first_name, '[aeiou]', 1, 1, 0, 'i') as first_vowel_position
+FROM employees;
+
+-- REGEXP_COUNT: Pattern'in kaç kez geçtiğini sayar
+SELECT
+    first_name,
+    REGEXP_COUNT(first_name, '[aeiou]', 1, 'i') as vowel_count
+FROM employees;
+```
+
+### MODEL Clause (Spreadsheet-like Calculations)
+
+```sql
+-- MODEL clause ile karmaşık hesaplamalar
+-- Yıllık satış projeksiyonu örneği
+SELECT year, month, sales, projected_sales
+FROM (
+    SELECT 2023 as year, 1 as month, 10000 as sales FROM dual UNION ALL
+    SELECT 2023, 2, 12000 FROM dual UNION ALL
+    SELECT 2023, 3, 15000 FROM dual UNION ALL
+    SELECT 2023, 4, 0 FROM dual
+)
+MODEL
+    PARTITION BY (year)
+    DIMENSION BY (month)
+    MEASURES (sales, sales as projected_sales)
+    RULES (
+        projected_sales[4] = projected_sales[3] * 1.1,  -- %10 artış
+        projected_sales[5] = projected_sales[4] * 1.05  -- %5 artış
+    )
+ORDER BY year, month;
+```
+
+## 16. JSON VE XML FONKSİYONLARI
+
+**Ne İşe Yarar:** Modern uygulamalarda JSON ve XML verilerini işlemek için kullanılır.
+
+### JSON Fonksiyonları (12c+)
+
+```sql
+-- JSON veri oluşturma
+SELECT
+    JSON_OBJECT(
+        'employee_id' VALUE employee_id,
+        'name' VALUE first_name || ' ' || last_name,
+        'salary' VALUE salary,
+        'department' VALUE department_id
+    ) as employee_json
+FROM employees
+WHERE department_id = 10;
+
+-- JSON_TABLE: JSON'u tablo formatına çevirir
+WITH json_data AS (
+    SELECT '[{"id":1,"name":"John","salary":5000},{"id":2,"name":"Jane","salary":6000}]' as json_col
+    FROM dual
+)
+SELECT jt.*
+FROM json_data j,
+     JSON_TABLE(j.json_col, '$[*]'
+         COLUMNS (
+             emp_id NUMBER PATH '$.id',
+             emp_name VARCHAR2(50) PATH '$.name',
+             emp_salary NUMBER PATH '$.salary'
+         )
+     ) jt;
+
+-- JSON_QUERY: JSON'dan belirli kısmı çıkarır
+SELECT
+    JSON_QUERY('{"employees":[{"name":"John","dept":"IT"},{"name":"Jane","dept":"HR"}]}',
+               '$.employees[*].name') as employee_names
+FROM dual;
+
+-- JSON_VALUE: JSON'dan skaler değer çıkarır
+SELECT
+    JSON_VALUE('{"employee":{"id":101,"name":"John Doe","salary":5000}}',
+               '$.employee.name') as employee_name,
+    JSON_VALUE('{"employee":{"id":101,"name":"John Doe","salary":5000}}',
+               '$.employee.salary') as employee_salary
+FROM dual;
+```
+
+### XML Fonksiyonları
+
+```sql
+-- XMLType ile çalışma
+WITH xml_data AS (
+    SELECT XMLType('<employees>
+                      <employee id="100">
+                        <name>John Doe</name>
+                        <salary>5000</salary>
+                        <department>IT</department>
+                      </employee>
+                      <employee id="101">
+                        <name>Jane Smith</name>
+                        <salary>6000</salary>
+                        <department>HR</department>
+                      </employee>
+                    </employees>') as xml_col
+    FROM dual
+)
+SELECT
+    extractValue(xml_col, '/employees/employee[@id="100"]/name') as employee_name,
+    extractValue(xml_col, '/employees/employee[@id="100"]/salary') as salary
+FROM xml_data;
+
+-- XMLTABLE: XML'den tablo formatına çevirme
+WITH xml_data AS (
+    SELECT XMLType('<employees>
+                      <employee id="100">
+                        <name>John Doe</name>
+                        <salary>5000</salary>
+                      </employee>
+                      <employee id="101">
+                        <name>Jane Smith</name>
+                        <salary>6000</salary>
+                      </employee>
+                    </employees>') as xml_col
+    FROM dual
+)
+SELECT jt.*
+FROM xml_data x,
+     XMLTABLE('/employees/employee'
+         PASSING x.xml_col
+         COLUMNS
+             emp_id NUMBER PATH '@id',
+             emp_name VARCHAR2(50) PATH 'name',
+             emp_salary NUMBER PATH 'salary'
+     ) jt;
+
+-- XML oluşturma
+SELECT
+    XMLElement("employee",
+        XMLAttributes(employee_id as "id"),
+        XMLElement("name", first_name || ' ' || last_name),
+        XMLElement("salary", salary),
+        XMLElement("department", department_id)
+    ) as employee_xml
+FROM employees
+WHERE department_id = 10;
+```
+
+## 17. Oracle Versiyona Özel Özellikler
+
+**Ne İşe Yarar:** Oracle'ın farklı versiyonlarında gelen yeni özellikler.
+
+### Oracle 12c+ Özellikler
+
+```sql
+-- Identity Columns (12c+)
+CREATE TABLE modern_employees (
+    emp_id NUMBER GENERATED ALWAYS AS IDENTITY START WITH 1000,
+    first_name VARCHAR2(50),
+    last_name VARCHAR2(50),
+    email VARCHAR2(100)
+);
+
+-- JSON Support (12c+)
+CREATE TABLE json_docs (
+    id NUMBER,
+    doc_data VARCHAR2(4000) CHECK (doc_data IS JSON)
+);
+
+INSERT INTO json_docs VALUES (1, '{"name":"John","age":30,"city":"Istanbul"}');
+
+-- Invisible Columns (12c+)
+ALTER TABLE employees ADD (internal_notes VARCHAR2(1000) INVISIBLE);
+```
+
+### Oracle 18c+ Özellikler
+
+```sql
+-- Private Temporary Tables (18c+)
+CREATE PRIVATE TEMPORARY TABLE ora$ptt_temp_emp (
+    emp_id NUMBER,
+    emp_name VARCHAR2(100)
+) ON COMMIT PRESERVE DEFINITION;
+
+-- Approximate Query Processing (18c+)
+SELECT APPROX_COUNT_DISTINCT(employee_id)
+FROM employees;
+```
+
+### Oracle 19c+ Özellikler
+
+```sql
+-- SQL Macros (19c+)
+CREATE OR REPLACE FUNCTION get_high_earners(p_threshold NUMBER)
+RETURN VARCHAR2 SQL_MACRO IS
+BEGIN
+    RETURN 'SELECT * FROM employees WHERE salary > p_threshold';
+END;
+/
+
+-- Kullanımı
+SELECT * FROM get_high_earners(10000);
+```
+
+Bu kapsamlı SQL temelleri dökümantasyonu ile Oracle Database ve PL/SQL öğrenme yolculuğunuz için sağlam bir foundation oluşturdunuz. Artık PL/SQL'e geçmeye hazırsınız!
+
 ### DML (Data Manipulation Language) - Veri İşleme Dili
 
 **Ne İşe Yarar:** Tablolardaki verileri eklemek, güncellemek, silmek için kullanılır.

@@ -809,4 +809,173 @@ END config_mgmt;
 /
 ```
 
+## 7. PRAGMA Direktifleri
+
+**Ne İşe Yarar:** PRAGMA direktifleri, derleyiciye özel talimatlar vermek için kullanılır.
+
+### PRAGMA AUTONOMOUS_TRANSACTION
+
+```sql
+-- Bağımsız transaction - ana transaction'ı etkilemez
+CREATE OR REPLACE PROCEDURE log_error(
+    p_error_code VARCHAR2,
+    p_error_message VARCHAR2
+) IS
+    PRAGMA AUTONOMOUS_TRANSACTION; -- Kritik: Bu satır olmazsa çalışmaz
+BEGIN
+    INSERT INTO error_log (
+        log_date, error_code, error_message, username
+    ) VALUES (
+        SYSDATE, p_error_code, p_error_message, USER
+    );
+
+    COMMIT; -- Bu COMMIT sadece bu procedure'ı etkiler
+EXCEPTION
+    WHEN OTHERS THEN
+        ROLLBACK; -- Bu ROLLBACK da sadece bu procedure'ı etkiler
+END;
+/
+
+-- Kullanım örneği
+CREATE OR REPLACE PROCEDURE risky_business IS
+BEGIN
+    UPDATE employees SET salary = salary * 2;
+
+    IF SQL%ROWCOUNT = 0 THEN
+        log_error('NO_UPDATE', 'Hiçbir kayıt güncellenmedi');
+        ROLLBACK; -- Bu ROLLBACK, log_error'u etkilemez
+    ELSE
+        COMMIT;
+    END IF;
+END;
+/
+```
+
+### PRAGMA EXCEPTION_INIT
+
+```sql
+-- Özel exception tanımlama
+DECLARE
+    -- Oracle hata kodunu özel exception'a bağla
+    invalid_salary EXCEPTION;
+    PRAGMA EXCEPTION_INIT(invalid_salary, -02290); -- Check constraint hatası
+
+    too_many_employees EXCEPTION;
+    PRAGMA EXCEPTION_INIT(too_many_employees, -00001); -- Unique constraint hatası
+BEGIN
+    UPDATE employees
+    SET salary = -1000 -- Negatif maaş (check constraint ihlali)
+    WHERE employee_id = 100;
+
+EXCEPTION
+    WHEN invalid_salary THEN
+        DBMS_OUTPUT.PUT_LINE('Maaş değeri hatalı!');
+    WHEN too_many_employees THEN
+        DBMS_OUTPUT.PUT_LINE('Çalışan zaten var!');
+END;
+/
+```
+
+### PRAGMA RESTRICT_REFERENCES (Legacy)
+
+```sql
+-- Eski Oracle versiyonlarında function purity için
+-- Modern Oracle'da DETERMINISTIC, PARALLEL_ENABLE kullanılır
+CREATE OR REPLACE FUNCTION get_department_name(p_dept_id NUMBER)
+RETURN VARCHAR2
+-- PRAGMA RESTRICT_REFERENCES(get_department_name, WNDS, RNDS, WNPS, RNPS)
+-- Modern: DETERMINISTIC
+DETERMINISTIC
+IS
+    v_dept_name VARCHAR2(100);
+BEGIN
+    -- Cache'den al veya hesapla
+    RETURN 'Department-' || p_dept_id;
+END;
+/
+```
+
+### PRAGMA SERIALLY_REUSABLE
+
+```sql
+-- Package state'i session boyunca koruma
+CREATE OR REPLACE PACKAGE session_cache IS
+    PRAGMA SERIALLY_REUSABLE; -- Her call'da fresh state
+
+    TYPE cache_array IS TABLE OF VARCHAR2(100);
+    g_cache cache_array := cache_array();
+
+    PROCEDURE add_to_cache(p_value VARCHAR2);
+    FUNCTION get_cache_size RETURN NUMBER;
+    PROCEDURE clear_cache;
+END session_cache;
+/
+
+CREATE OR REPLACE PACKAGE BODY session_cache IS
+    PRAGMA SERIALLY_REUSABLE; -- Body'de de belirtilmeli
+
+    PROCEDURE add_to_cache(p_value VARCHAR2) IS
+    BEGIN
+        g_cache.EXTEND;
+        g_cache(g_cache.COUNT) := p_value;
+    END;
+
+    FUNCTION get_cache_size RETURN NUMBER IS
+    BEGIN
+        RETURN g_cache.COUNT;
+    END;
+
+    PROCEDURE clear_cache IS
+    BEGIN
+        g_cache.DELETE;
+    END;
+END session_cache;
+/
+```
+
+### PRAGMA INLINE
+
+```sql
+-- Function call'larını optimize etme (12c+)
+CREATE OR REPLACE FUNCTION calculate_bonus(p_salary NUMBER)
+RETURN NUMBER
+IS
+    PRAGMA INLINE; -- Derleyiciye inline hint ver
+BEGIN
+    RETURN p_salary * 0.1;
+END;
+/
+
+-- Kullanımda inline olacak
+CREATE OR REPLACE PROCEDURE test_inline IS
+    v_bonus NUMBER;
+BEGIN
+    v_bonus := calculate_bonus(5000); -- Bu call inline optimize edilebilir
+    DBMS_OUTPUT.PUT_LINE('Bonus: ' || v_bonus);
+END;
+/
+```
+
+### PRAGMA UDF (18c+)
+
+```sql
+-- User Defined Function'ları SQL engine'de optimize et
+CREATE OR REPLACE FUNCTION sql_optimized_func(p_value NUMBER)
+RETURN NUMBER
+IS
+    PRAGMA UDF; -- SQL context'te daha hızlı çalışır
+BEGIN
+    RETURN p_value * 2;
+END;
+/
+
+-- SQL'de kullanımı optimize edilir
+SELECT employee_id,
+       salary,
+       sql_optimized_func(salary) as doubled_salary
+FROM employees;
+```
+
+**Sonraki Bölümde:** Performance tuning ve optimization teknikleri.
+
 **Sonraki Bölümde:** Performance Tuning ve optimizasyon tekniklerini öğreneceğiz.

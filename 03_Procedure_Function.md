@@ -367,6 +367,128 @@ END;
 /
 ```
 
+### 3. Oracle Function Modifiers
+
+```sql
+-- DETERMINISTIC: Aynı input için her zaman aynı output
+CREATE OR REPLACE FUNCTION calculate_bonus(p_salary NUMBER, p_rate NUMBER)
+RETURN NUMBER
+DETERMINISTIC
+IS
+BEGIN
+    RETURN p_salary * p_rate / 100;
+END;
+/
+
+-- RESULT_CACHE: Sonuçları otomatik cache'ler (11g+)
+CREATE OR REPLACE FUNCTION get_company_info(p_company_id NUMBER)
+RETURN VARCHAR2
+RESULT_CACHE
+IS
+    v_company_name VARCHAR2(100);
+BEGIN
+    SELECT company_name INTO v_company_name
+    FROM companies
+    WHERE company_id = p_company_id;
+
+    RETURN v_company_name;
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        RETURN 'Şirket Bulunamadı';
+END;
+/
+
+-- PARALLEL_ENABLE: Paralel sorgulamayı destekler
+CREATE OR REPLACE FUNCTION simple_calculation(p_number NUMBER)
+RETURN NUMBER
+PARALLEL_ENABLE
+DETERMINISTIC
+IS
+BEGIN
+    RETURN p_number * 2;
+END;
+/
+
+-- AUTHID: Çalıştırma yetkisi belirleme
+CREATE OR REPLACE FUNCTION get_user_data(p_user_id NUMBER)
+RETURN VARCHAR2
+AUTHID CURRENT_USER  -- Çağıran kullanıcının yetkileriyle çalışır
+IS
+    v_data VARCHAR2(1000);
+BEGIN
+    SELECT user_info INTO v_data
+    FROM user_details
+    WHERE user_id = p_user_id;
+
+    RETURN v_data;
+END;
+/
+
+-- PIPELINED: Table function için (büyük veri setleri)
+CREATE TYPE number_table AS TABLE OF NUMBER;
+/
+
+CREATE OR REPLACE FUNCTION get_numbers(p_start NUMBER, p_end NUMBER)
+RETURN number_table
+PIPELINED
+IS
+BEGIN
+    FOR i IN p_start..p_end LOOP
+        PIPE ROW(i);
+    END LOOP;
+    RETURN;
+END;
+/
+
+-- Kullanım
+SELECT * FROM TABLE(get_numbers(1, 10));
+```
+
+### 4. Advanced Parameter Features
+
+```sql
+-- DEFAULT değerlerle procedure
+CREATE OR REPLACE PROCEDURE generate_report(
+    p_start_date IN DATE DEFAULT SYSDATE - 30,
+    p_end_date IN DATE DEFAULT SYSDATE,
+    p_format IN VARCHAR2 DEFAULT 'PDF',
+    p_email_list IN VARCHAR2 DEFAULT NULL
+) IS
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('Rapor oluşturuluyor...');
+    DBMS_OUTPUT.PUT_LINE('Başlangıç: ' || TO_CHAR(p_start_date, 'DD-MON-YYYY'));
+    DBMS_OUTPUT.PUT_LINE('Bitiş: ' || TO_CHAR(p_end_date, 'DD-MON-YYYY'));
+    DBMS_OUTPUT.PUT_LINE('Format: ' || p_format);
+
+    IF p_email_list IS NOT NULL THEN
+        DBMS_OUTPUT.PUT_LINE('Email listesi: ' || p_email_list);
+    END IF;
+END;
+/
+
+-- Çağırma yöntemleri
+BEGIN
+    generate_report;  -- Tüm default değerler
+    generate_report(SYSDATE - 7);  -- Sadece start_date
+    generate_report(p_format => 'EXCEL');  -- Named parameter
+    generate_report(p_start_date => SYSDATE - 15, p_format => 'CSV');
+END;
+/
+
+-- NOCOPY hint: Büyük collections için performans
+CREATE OR REPLACE PROCEDURE process_large_data(
+    p_data IN OUT NOCOPY employee_mgmt.emp_array
+) IS
+BEGIN
+    -- NOCOPY: Parametre değerini kopyalamaz, referans geçer
+    -- Büyük collections için çok daha hızlı
+    FOR i IN 1..p_data.COUNT LOOP
+        p_data(i).salary := p_data(i).salary * 1.1;
+    END LOOP;
+END;
+/
+```
+
 ## Best Practices
 
 1. **Naming Convention**: `get_`, `set_`, `calculate_`, `validate_` prefixleri kullan

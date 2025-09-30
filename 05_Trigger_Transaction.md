@@ -219,6 +219,129 @@ END employees_compound_audit;
 /
 ```
 
+## 3.5. DDL Triggers (System Events)
+
+**Ne İşe Yarar:** DDL komutları (CREATE, ALTER, DROP) ve sistem olayları için trigger'lar.
+
+```sql
+-- Database seviyesinde DDL trigger
+CREATE OR REPLACE TRIGGER ddl_audit_trigger
+    AFTER DDL ON DATABASE
+BEGIN
+    INSERT INTO ddl_audit_log (
+        event_type,
+        object_name,
+        object_type,
+        object_owner,
+        sql_text,
+        event_date,
+        username,
+        ip_address
+    ) VALUES (
+        SYS.DICTIONARY_OBJ_TYPE,
+        SYS.DICTIONARY_OBJ_NAME,
+        SYS.DICTIONARY_OBJ_OWNER,
+        ORA_SYSEVENT,
+        ORA_SQL_TXT(1),  -- İlk 2000 karakter
+        SYSDATE,
+        USER,
+        SYS_CONTEXT('USERENV', 'IP_ADDRESS')
+    );
+END;
+/
+
+-- Schema seviyesinde DDL trigger
+CREATE OR REPLACE TRIGGER schema_ddl_trigger
+    BEFORE CREATE OR ALTER OR DROP ON SCHEMA
+BEGIN
+    -- Cuma günü DDL işlemlerini engelle
+    IF TO_CHAR(SYSDATE, 'DAY') = 'FRIDAY   ' THEN
+        RAISE_APPLICATION_ERROR(-20100,
+            'Cuma günü DDL işlemleri yapılamaz!');
+    END IF;
+
+    -- Production saatlerinde DDL engelle
+    IF TO_NUMBER(TO_CHAR(SYSDATE, 'HH24')) BETWEEN 9 AND 17 THEN
+        RAISE_APPLICATION_ERROR(-20101,
+            'Mesai saatlerinde (09:00-17:00) DDL işlemleri yapılamaz!');
+    END IF;
+END;
+/
+
+-- Logon/Logoff trigger'lar
+CREATE OR REPLACE TRIGGER user_logon_trigger
+    AFTER LOGON ON DATABASE
+BEGIN
+    INSERT INTO user_sessions (
+        username,
+        session_id,
+        logon_time,
+        ip_address,
+        program,
+        machine
+    ) VALUES (
+        USER,
+        SYS_CONTEXT('USERENV', 'SESSIONID'),
+        SYSDATE,
+        SYS_CONTEXT('USERENV', 'IP_ADDRESS'),
+        SYS_CONTEXT('USERENV', 'PROGRAM'),
+        SYS_CONTEXT('USERENV', 'HOST')
+    );
+END;
+/
+
+CREATE OR REPLACE TRIGGER user_logoff_trigger
+    BEFORE LOGOFF ON DATABASE
+BEGIN
+    UPDATE user_sessions
+    SET logoff_time = SYSDATE,
+        session_duration = (SYSDATE - logon_time) * 24 * 60  -- dakika cinsinden
+    WHERE session_id = SYS_CONTEXT('USERENV', 'SESSIONID')
+    AND logoff_time IS NULL;
+END;
+/
+
+-- Database startup/shutdown trigger'lar
+CREATE OR REPLACE TRIGGER db_startup_trigger
+    AFTER STARTUP ON DATABASE
+BEGIN
+    INSERT INTO database_events (
+        event_type,
+        event_date,
+        database_name,
+        instance_name
+    ) VALUES (
+        'STARTUP',
+        SYSDATE,
+        SYS_CONTEXT('USERENV', 'DB_NAME'),
+        SYS_CONTEXT('USERENV', 'INSTANCE_NAME')
+    );
+END;
+/
+
+-- Servererror trigger (hata yakalama)
+CREATE OR REPLACE TRIGGER server_error_trigger
+    AFTER SERVERERROR ON DATABASE
+BEGIN
+    INSERT INTO error_tracking (
+        error_code,
+        error_message,
+        username,
+        session_id,
+        sql_text,
+        error_date
+    ) VALUES (
+        ORA_SERVER_ERROR(1),
+        ORA_SERVER_ERROR_MSG(1),
+        USER,
+        SYS_CONTEXT('USERENV', 'SESSIONID'),
+        ORA_SQL_TXT(1),
+        SYSDATE
+    );
+END;
+/
+```
+
 ## 4. Instead Of Trigger (View'lar için)
 
 ```sql
